@@ -1,0 +1,13 @@
+Project Title: University Food Ordering App
+
+The objective of this project is to build a simple food ordering platform for university students. The project will help students browse meals, place orders, make payment, and track order status.
+
+Key stakeholders include students, food vendors, delivery partners, and the project team. The project scope includes login, restaurant listing, ordering, payment, notification, and admin management.
+
+The Work Breakdown Structure includes planning, UI design, backend development, database design, testing, deployment, and user training.
+
+The estimated project schedule is 10 weeks, with major milestones for UI completion, backend completion, integration testing, and final launch.
+
+The budget includes developer cost, server cost, UI design cost, testing cost, and contingency reserve.
+
+Main risks include schedule delay, payment integration issues, vendor onboarding problems, and unstable server performance. Risk responses include early testing, backup server setup, vendor training, and weekly risk review.

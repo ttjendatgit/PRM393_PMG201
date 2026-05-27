@@ -1,0 +1,7 @@
+Dự án của em là xây dựng ứng dụng đặt đồ ăn cho sinh viên.
+
+Mục tiêu là giúp sinh viên đặt món nhanh hơn và tiện hơn. Các bên liên quan gồm sinh viên, quán ăn, đội phát triển và người giao hàng.
+
+Phạm vi dự án gồm đăng nhập, xem danh sách món ăn, đặt hàng và theo dõi đơn hàng.
+
+Lịch trình dự án khoảng 8 tuần. Các rủi ro chính là quán ăn cập nhật món chậm, ứng dụng có thể bị lỗi và dự án có thể bị trễ tiến độ.
