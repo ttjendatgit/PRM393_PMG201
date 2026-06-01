@@ -32,7 +32,7 @@ class ExportScreen extends StatelessWidget {
             subtitle:
                 'Review and export PMG201c final assessment data, including scores, criteria breakdown, and AI-generated comments.',
             badge: 'Course PMG201c',
-            button: 'Export to Excel',
+            button: 'Export Mark_Output.xlsx',
             onPressed: onExportExcel,
           ),
           const SizedBox(height: 24),

@@ -1,18 +1,16 @@
-import 'dart:io';
-
-import 'package:excel/excel.dart' as xls;
-import 'package:file_picker/file_picker.dart' as fp;
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import 'models/grading_result.dart';
+import 'models/mark_input.dart';
 import 'models/submission.dart';
 import 'screens/criteria_screen.dart';
 import 'screens/export_screen.dart';
 import 'screens/grading_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/file/excel_export_service.dart';
+import 'services/file/mark_input_excel_service.dart';
+import 'services/file/submission_file_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/side_nav.dart';
 import 'widgets/top_bar.dart';
@@ -35,10 +33,6 @@ class PMGGradeAIApp extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AppShell – navigation host + state owner
-// ─────────────────────────────────────────────────────────────────────────────
-
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -47,45 +41,28 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
+  final _submissionFileService = SubmissionFileService();
+  final _markInputExcelService = MarkInputExcelService();
+  final _excelExportService = ExcelExportService();
+
   int selectedIndex = 0;
   int? selectedSubmissionIndex;
 
   List<Submission> submissions = [];
   List<GradingResult> results = [];
+  List<MarkInputRow> markInputRows = [];
+  List<double> maxQuestionScores = MarkInputRow.defaultMaxScores;
+  double maxTotal = MarkInputRow.defaultMaxTotal;
 
   bool isGrading = false;
-  String message = 'Ready. Import .txt files to begin Phase 1.';
-
-  // ── File picking ────────────────────────────────────────────────────────────
+  String message = 'Ready. Import Mark_Input.xlsx and .txt files to begin.';
 
   Future<void> pickTxtFiles() async {
-    final result = await fp.FilePicker.pickFiles(
-      allowMultiple: true,
-      type: fp.FileType.custom,
-      allowedExtensions: ['txt'],
-    );
+    final picked = await _submissionFileService.pickAndImportTxtFiles();
 
-    if (result == null) {
-      setState(() => message = 'File selection cancelled.');
+    if (picked.isEmpty) {
+      setState(() => message = 'File selection cancelled or no .txt files found.');
       return;
-    }
-
-    final picked = <Submission>[];
-
-    for (final file in result.files) {
-      final path = file.path;
-      if (path == null) continue;
-
-      final content = await File(path).readAsString();
-
-      picked.add(
-        Submission(
-          fileName: file.name,
-          filePath: path,
-          content: content,
-          sizeInBytes: file.size,
-        ),
-      );
     }
 
     setState(() {
@@ -96,7 +73,28 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
-  // ── Mock grading ────────────────────────────────────────────────────────────
+  Future<void> pickMarkInputFile() async {
+    try {
+      final imported = await _markInputExcelService.pickAndImportMarkInput();
+
+      if (imported == null) {
+        setState(() => message = 'Mark_Input selection cancelled.');
+        return;
+      }
+
+      setState(() {
+        markInputRows = imported.rows;
+        maxQuestionScores = imported.maxQuestionScores;
+        maxTotal = imported.maxTotal;
+        message =
+            'Imported Mark_Input.xlsx with ${imported.rows.length} row(s).';
+      });
+    } on MarkInputParseException catch (error) {
+      setState(() => message = 'Mark_Input import failed: $error');
+    } catch (error) {
+      setState(() => message = 'Mark_Input import failed: $error');
+    }
+  }
 
   Future<void> mockGradeAll() async {
     if (submissions.isEmpty) {
@@ -114,7 +112,6 @@ class _AppShellState extends State<AppShell> {
 
     for (final submission in submissions) {
       await Future.delayed(const Duration(milliseconds: 650));
-
       temp.add(_mockGrade(submission));
 
       setState(() {
@@ -125,26 +122,35 @@ class _AppShellState extends State<AppShell> {
 
     setState(() {
       isGrading = false;
-      message = 'Completed mock grading. Next phase: connect real AI API.';
+      message = 'Completed mock grading. Export Mark_Output.xlsx when ready.';
       selectedIndex = 2;
     });
   }
 
   GradingResult _mockGrade(Submission submission) {
     final nameInfo = _extractStudentInfo(submission.fileName);
+    const questionScores = [1.8, 1.9, 2.5, 2.3];
+    const finalScore = 8.5;
+
+    final marker = markInputRows
+            .where((row) => row.alias == submission.alias)
+            .map((row) => row.marker)
+            .firstOrNull ??
+        'AI';
 
     return GradingResult(
+      alias: submission.alias,
+      marker: marker,
       fileName: submission.fileName,
       studentId: nameInfo.$1,
       studentName: nameInfo.$2,
-      finalScore: 8.5,
-      criteriaScores: const {
-        'Project Charter': 1.4,
-        'Scope & WBS': 1.8,
-        'Schedule': 1.6,
-        'Budget': 1.2,
-        'Risk': 1.7,
-        'Presentation': 0.8,
+      questionScores: questionScores,
+      finalScore: finalScore,
+      criteriaScores: {
+        GradingResult.questionLabels[0]: questionScores[0],
+        GradingResult.questionLabels[1]: questionScores[1],
+        GradingResult.questionLabels[2]: questionScores[2],
+        GradingResult.questionLabels[3]: questionScores[3],
       },
       feedback:
           'The submission shows a solid understanding of PMG201c project planning. The WBS and risk register are clear. To improve, the student should explain budget assumptions and schedule dependencies in more detail.',
@@ -162,86 +168,36 @@ class _AppShellState extends State<AppShell> {
     return ('N/A', clean);
   }
 
-  // ── Excel export ────────────────────────────────────────────────────────────
-
   Future<void> exportExcel() async {
     if (results.isEmpty) {
       setState(() => message = 'No grading results to export.');
       return;
     }
 
-    final excel = xls.Excel.createExcel();
+    try {
+      final file = await _excelExportService.exportMarkOutput(
+        templateRows: markInputRows,
+        gradingResults: results,
+        maxQuestionScores: maxQuestionScores,
+        maxTotal: maxTotal,
+      );
 
-    final summary = excel['Summary'];
-    summary.appendRow([
-      xls.TextCellValue('STT'),
-      xls.TextCellValue('Student ID'),
-      xls.TextCellValue('Student Name'),
-      xls.TextCellValue('File Name'),
-      xls.TextCellValue('Final Score'),
-      xls.TextCellValue('Feedback'),
-    ]);
-
-    for (int i = 0; i < results.length; i++) {
-      final item = results[i];
-      summary.appendRow([
-        xls.IntCellValue(i + 1),
-        xls.TextCellValue(item.studentId),
-        xls.TextCellValue(item.studentName),
-        xls.TextCellValue(item.fileName),
-        xls.DoubleCellValue(item.finalScore),
-        xls.TextCellValue(item.feedback),
-      ]);
+      setState(() => message = 'Exported Mark_Output.xlsx: ${file.path}');
+    } on ExcelExportException catch (error) {
+      setState(() => message = 'Export failed: $error');
+    } catch (error) {
+      setState(() => message = 'Export failed: $error');
     }
-
-    final breakdown = excel['Criteria Breakdown'];
-    breakdown.appendRow([
-      xls.TextCellValue('Student ID'),
-      xls.TextCellValue('Student Name'),
-      xls.TextCellValue('Criterion'),
-      xls.TextCellValue('Score'),
-    ]);
-
-    for (final result in results) {
-      for (final entry in result.criteriaScores.entries) {
-        breakdown.appendRow([
-          xls.TextCellValue(result.studentId),
-          xls.TextCellValue(result.studentName),
-          xls.TextCellValue(entry.key),
-          xls.DoubleCellValue(entry.value),
-        ]);
-      }
-    }
-
-    final downloads = await getDownloadsDirectory();
-    final documents = await getApplicationDocumentsDirectory();
-    final saveDir = downloads ?? documents;
-
-    final filePath = p.join(saveDir.path, 'PMG201c_grading_results.xlsx');
-    final bytes = excel.save();
-
-    if (bytes == null) {
-      setState(() => message = 'Cannot generate Excel file.');
-      return;
-    }
-
-    final file = File(filePath)
-      ..createSync(recursive: true)
-      ..writeAsBytesSync(bytes);
-
-    setState(() => message = 'Excel exported: ${file.path}');
   }
-
-  // ── Derived getters ─────────────────────────────────────────────────────────
 
   GradingResult? get selectedResult {
     if (selectedSubmissionIndex == null) return null;
     if (selectedSubmissionIndex! >= submissions.length) return null;
 
-    final fileName = submissions[selectedSubmissionIndex!].fileName;
+    final alias = submissions[selectedSubmissionIndex!].alias;
 
     for (final result in results) {
-      if (result.fileName == fileName) return result;
+      if (result.alias == alias) return result;
     }
 
     return null;
@@ -253,17 +209,17 @@ class _AppShellState extends State<AppShell> {
     return submissions[selectedSubmissionIndex!];
   }
 
-  // ── Build ───────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final pages = [
       HomeScreen(
         submissions: submissions,
         results: results,
+        markInputCount: markInputRows.length,
         message: message,
         isGrading: isGrading,
         onPickFiles: pickTxtFiles,
+        onPickMarkInput: pickMarkInputFile,
         onGradeAll: mockGradeAll,
         onSelectSubmission: (index) {
           setState(() {
@@ -285,7 +241,7 @@ class _AppShellState extends State<AppShell> {
       const SettingsScreen(),
     ];
 
-    final titles = [
+    const titles = [
       'Workspace',
       'PMG201c Criteria Matrix',
       'AI Grading Detail',
@@ -311,5 +267,13 @@ class _AppShellState extends State<AppShell> {
         ],
       ),
     );
+  }
+}
+
+extension<T> on Iterable<T> {
+  T? get firstOrNull {
+    final iterator = this.iterator;
+    if (!iterator.moveNext()) return null;
+    return iterator.current;
   }
 }

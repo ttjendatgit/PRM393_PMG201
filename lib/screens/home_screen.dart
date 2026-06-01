@@ -12,18 +12,22 @@ class HomeScreen extends StatelessWidget {
     super.key,
     required this.submissions,
     required this.results,
+    required this.markInputCount,
     required this.message,
     required this.isGrading,
     required this.onPickFiles,
+    required this.onPickMarkInput,
     required this.onGradeAll,
     required this.onSelectSubmission,
   });
 
   final List<Submission> submissions;
   final List<GradingResult> results;
+  final int markInputCount;
   final String message;
   final bool isGrading;
   final VoidCallback onPickFiles;
+  final VoidCallback onPickMarkInput;
   final VoidCallback onGradeAll;
   final ValueChanged<int> onSelectSubmission;
 
@@ -58,7 +62,9 @@ class HomeScreen extends StatelessWidget {
                   flex: 7,
                   child: UploadZone(
                     isGrading: isGrading,
+                    markInputCount: markInputCount,
                     onPickFiles: onPickFiles,
+                    onPickMarkInput: onPickMarkInput,
                     onGradeAll: onGradeAll,
                   ),
                 ),
@@ -162,12 +168,16 @@ class UploadZone extends StatelessWidget {
   const UploadZone({
     super.key,
     required this.isGrading,
+    required this.markInputCount,
     required this.onPickFiles,
+    required this.onPickMarkInput,
     required this.onGradeAll,
   });
 
   final bool isGrading;
+  final int markInputCount;
   final VoidCallback onPickFiles;
+  final VoidCallback onPickMarkInput;
   final VoidCallback onGradeAll;
 
   @override
@@ -252,6 +262,27 @@ class UploadZone extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
+                onPressed: onPickMarkInput,
+                icon: const Icon(Icons.table_chart_rounded),
+                label: Text(
+                  markInputCount > 0
+                      ? 'Mark_Input ($markInputCount rows)'
+                      : 'Import Mark_Input.xlsx',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.text,
+                  side: const BorderSide(color: AppColors.outline),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 onPressed: isGrading ? null : onGradeAll,
                 icon: const Icon(Icons.translate_rounded),
                 label: Text(isGrading ? 'Grading...' : 'Translate + Grade'),
@@ -260,7 +291,7 @@ class UploadZone extends StatelessWidget {
           ),
           const SizedBox(height: 28),
           const Text(
-            'SUPPORTED FORMAT: .TXT | PHASE 1 MOCK AI',
+            'SUPPORTED: .TXT + Mark_Input.xlsx | OUTPUT: Mark_Output.xlsx',
             style: TextStyle(
               color: AppColors.muted,
               fontSize: 10,
