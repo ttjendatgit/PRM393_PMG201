@@ -9,7 +9,7 @@ import '../widgets/score_bubble.dart';
 import '../widgets/stat_card.dart';
 import '../widgets/table_header.dart';
 
-class ExportPage extends StatelessWidget {
+class ExportPage extends StatefulWidget {
   const ExportPage({
     super.key,
     required this.results,
@@ -17,10 +17,47 @@ class ExportPage extends StatelessWidget {
   });
 
   final List<GradingResult> results;
-  final VoidCallback onExportExcel;
+  final Future<void> Function() onExportExcel;
+
+  @override
+  State<ExportPage> createState() => _ExportPageState();
+}
+
+class _ExportPageState extends State<ExportPage> {
+  bool _exporting = false;
+
+  Future<void> _handleExport() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      await widget.onExportExcel();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Excel file exported successfully.'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final results = widget.results;
     final avg = results.isEmpty
         ? 0.0
         : results.map((e) => e.finalScore).reduce((a, b) => a + b) /
@@ -35,8 +72,8 @@ class ExportPage extends StatelessWidget {
             subtitle:
                 'Review and export grading results including per-question scores and AI comments.',
             badge: results.isEmpty ? 'No Results' : '${results.length} Results',
-            button: 'Export to Excel',
-            onPressed: onExportExcel,
+            button: _exporting ? 'Exporting…' : 'Export to Excel',
+            onPressed: _exporting ? null : () { _handleExport(); },
           ),
           const SizedBox(height: 24),
           Row(

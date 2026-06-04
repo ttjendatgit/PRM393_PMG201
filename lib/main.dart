@@ -321,12 +321,80 @@ class _AppShellState extends State<AppShell> {
     final excel = xls.Excel.createExcel();
     final hasQR = results.first.questionResults != null;
 
+    // Timestamped filename
+    final now = DateTime.now();
+    final stamp = '${now.year}'
+        '${now.month.toString().padLeft(2, '0')}'
+        '${now.day.toString().padLeft(2, '0')}'
+        '_${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}';
+    final fileName = 'PMG201c_grading_results_$stamp.xlsx';
+
+    // Shared cell styles
+    final headerStyle = xls.CellStyle(
+      bold: true,
+      backgroundColorHex: xls.ExcelColor.fromHexString('FF1F4E79'),
+      fontColorHex: xls.ExcelColor.white,
+      horizontalAlign: xls.HorizontalAlign.Center,
+      verticalAlign: xls.VerticalAlign.Center,
+    );
+    final numericStyle = xls.CellStyle(
+      numberFormat: xls.NumFormat.standard_2,
+      horizontalAlign: xls.HorizontalAlign.Center,
+    );
+    final wrapStyle = xls.CellStyle(
+      textWrapping: xls.TextWrapping.WrapText,
+      verticalAlign: xls.VerticalAlign.Top,
+    );
+
+    void applyHeaderAndWidths(
+      xls.Sheet sheet,
+      int totalCols,
+      int scoreCols, // first column index of score block (after fixed cols)
+      int aiCommentCol,
+      int reviewerNoteCol,
+      int totalScoreColsBeforeComments, // number of score cols between fixed and AI comment
+    ) {
+      for (int c = 0; c < totalCols; c++) {
+        sheet
+            .cell(xls.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: 0))
+            .cellStyle = headerStyle;
+
+        double w;
+        if (c == 0) {
+          w = 8;
+        } else if (c == 1) {
+          w = 16;
+        } else if (c == 2) {
+          w = 22;
+        } else if (c == 3) {
+          w = 28;
+        } else if (c == aiCommentCol) {
+          w = 45;
+        } else if (c == reviewerNoteCol) {
+          w = 45;
+        } else if (c >= aiCommentCol - 2 && c < aiCommentCol) {
+          w = 16; // Total Raw / Total Converted
+        } else {
+          w = 14; // per-question / per-criterion columns
+        }
+        sheet.setColumnWidth(c, w);
+      }
+    }
+
     if (hasQR) {
       final qTemplate = results.first.questionResults!;
       final totalRawMax = qTemplate.fold<double>(0, (s, q) => s + q.maxRawScore);
       final totalConvMax = qTemplate.fold<double>(0, (s, q) => s + q.maxConvertedScore);
+      final qCount = qTemplate.length;
+
+      // Col layout: 0=STT 1=ID 2=Name 3=File | 4..4+2q-1=Qs | +2q=TotalRaw +2q+1=TotalConv | +2q+2=AIComment +2q+3=ReviewerNote
+      final aiCommentCol = 4 + qCount * 2 + 2;
+      final reviewerNoteCol = aiCommentCol + 1;
+      final totalCols = reviewerNoteCol + 1;
 
       final sheet = excel['Grading Results'];
+
       sheet.appendRow([
         xls.TextCellValue('STT'),
         xls.TextCellValue('Student ID'),
@@ -337,7 +405,7 @@ class _AppShellState extends State<AppShell> {
             '${qr.questionId.toUpperCase()} Raw (/${qr.maxRawScore.toInt()})',
           ),
           xls.TextCellValue(
-            '${qr.questionId.toUpperCase()} Converted (/${qr.maxConvertedScore})',
+            '${qr.questionId.toUpperCase()} Conv (/${qr.maxConvertedScore})',
           ),
         ]),
         xls.TextCellValue('Total Raw (/${totalRawMax.toInt()})'),
@@ -345,6 +413,8 @@ class _AppShellState extends State<AppShell> {
         xls.TextCellValue('AI Comment'),
         xls.TextCellValue('Reviewer Note'),
       ]);
+
+      applyHeaderAndWidths(sheet, totalCols, 4, aiCommentCol, reviewerNoteCol, qCount * 2 + 2);
 
       for (int i = 0; i < results.length; i++) {
         final item = results[i];
@@ -363,12 +433,32 @@ class _AppShellState extends State<AppShell> {
           xls.TextCellValue(item.feedback),
           xls.TextCellValue(item.reviewerNote),
         ]);
+
+        final rowIdx = i + 1;
+        for (int c = 4; c < aiCommentCol; c++) {
+          sheet
+              .cell(xls.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: rowIdx))
+              .cellStyle = numericStyle;
+        }
+        sheet
+            .cell(xls.CellIndex.indexByColumnRow(columnIndex: aiCommentCol, rowIndex: rowIdx))
+            .cellStyle = wrapStyle;
+        sheet
+            .cell(xls.CellIndex.indexByColumnRow(columnIndex: reviewerNoteCol, rowIndex: rowIdx))
+            .cellStyle = wrapStyle;
       }
     } else {
-      // Mock results: criteria-based (converted only)
+      // Mock results: criteria-based
       final criteriaKeys = results.first.criteriaScores.keys.toList();
+      final qCount = criteriaKeys.length;
+
+      // Col layout: 0=STT 1=ID 2=Name 3=File | 4..4+q-1=criteria | +q=TotalRaw +q+1=TotalConv | +q+2=AIComment +q+3=ReviewerNote
+      final aiCommentCol = 4 + qCount + 2;
+      final reviewerNoteCol = aiCommentCol + 1;
+      final totalCols = reviewerNoteCol + 1;
 
       final sheet = excel['Summary'];
+
       sheet.appendRow([
         xls.TextCellValue('STT'),
         xls.TextCellValue('Student ID'),
@@ -380,6 +470,8 @@ class _AppShellState extends State<AppShell> {
         xls.TextCellValue('AI Comment'),
         xls.TextCellValue('Reviewer Note'),
       ]);
+
+      applyHeaderAndWidths(sheet, totalCols, 4, aiCommentCol, reviewerNoteCol, qCount + 2);
 
       for (int i = 0; i < results.length; i++) {
         final item = results[i];
@@ -396,6 +488,19 @@ class _AppShellState extends State<AppShell> {
           xls.TextCellValue(item.feedback),
           xls.TextCellValue(item.reviewerNote),
         ]);
+
+        final rowIdx = i + 1;
+        for (int c = 4; c < aiCommentCol; c++) {
+          sheet
+              .cell(xls.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: rowIdx))
+              .cellStyle = numericStyle;
+        }
+        sheet
+            .cell(xls.CellIndex.indexByColumnRow(columnIndex: aiCommentCol, rowIndex: rowIdx))
+            .cellStyle = wrapStyle;
+        sheet
+            .cell(xls.CellIndex.indexByColumnRow(columnIndex: reviewerNoteCol, rowIndex: rowIdx))
+            .cellStyle = wrapStyle;
       }
     }
 
@@ -403,9 +508,6 @@ class _AppShellState extends State<AppShell> {
     final documents = await getApplicationDocumentsDirectory();
     final saveDir = downloads ?? documents;
 
-    final fileName = currentAssessment != null
-        ? '${currentAssessment!.courseCode}_grading_results.xlsx'
-        : 'grading_results.xlsx';
     final filePath = p.join(saveDir.path, fileName);
     final bytes = excel.save();
 
