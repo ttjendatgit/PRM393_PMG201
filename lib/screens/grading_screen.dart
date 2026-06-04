@@ -309,13 +309,18 @@ class _AiPanelState extends State<AiPanel> {
     final totalConverted = double.parse(
       qrs.fold<double>(0.0, (s, q) => s + q.convertedScore).toStringAsFixed(2),
     );
+    // Safety clamp: reviewed totalConverted must never exceed the assessment max
+    final maxTotalConv = widget.assessment?.totalConvertedScore ?? totalConverted;
+    final finalScore = double.parse(
+      totalConverted.clamp(0.0, maxTotalConv).toStringAsFixed(2),
+    );
 
     final updated = GradingResult(
       fileName: widget.result!.fileName,
       studentId: widget.result!.studentId,
       studentName: widget.result!.studentName,
       totalRawScore: totalRaw,
-      finalScore: totalConverted,
+      finalScore: finalScore,
       criteriaScores: {for (final qr in qrs) qr.questionTitle: qr.convertedScore},
       feedback: widget.result!.feedback,
       questionResults: qrs,

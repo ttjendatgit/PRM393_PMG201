@@ -125,10 +125,14 @@ class OpenRouterGradingService {
       throw Exception('OpenRouter returned empty content.');
     }
 
-    return _parseAiResponse(aiText, submission);
+    return _parseAiResponse(aiText, submission, assessment);
   }
 
-  static GradingResult _parseAiResponse(String text, Submission submission) {
+  static GradingResult _parseAiResponse(
+    String text,
+    Submission submission,
+    Assessment assessment,
+  ) {
     var cleaned = text.trim();
 
     // Strip markdown code fences if the model added them despite instructions
@@ -151,9 +155,18 @@ class OpenRouterGradingService {
       final q = raw as Map<String, dynamic>;
       final subscoresRaw = q['subscores'] as List<dynamic>? ?? [];
       final maxRaw = _toDouble(q['max_raw_score']);
-      final maxConv = _toDouble(q['max_converted_score']);
-      final rawScore = _toDouble(q['raw_score']);
-      // Recalculate converted score from raw to ensure consistency
+      // Clamp raw score to [0, maxRawScore]
+      final rawScore = maxRaw > 0
+          ? _toDouble(q['raw_score']).clamp(0.0, maxRaw).toDouble()
+          : _toDouble(q['raw_score']).clamp(0.0, double.maxFinite).toDouble();
+      // Always derive convertedMax proportionally from assessment scale.
+      // Never trust the AI's max_converted_score — it frequently copies rawMax
+      // or uses an inconsistent scale, producing impossible values like 99/10.
+      final maxConv = assessment.totalRawScore > 0 && maxRaw > 0
+          ? double.parse(
+              (maxRaw / assessment.totalRawScore * assessment.totalConvertedScore)
+                  .toStringAsFixed(2))
+          : 0.0;
       final convertedScore = maxRaw > 0
           ? double.parse((rawScore / maxRaw * maxConv).toStringAsFixed(2))
           : 0.0;
@@ -179,10 +192,18 @@ class OpenRouterGradingService {
       );
     }).toList();
 
-    // Derive totals from per-question results for consistency
+    // Recalculate totals from per-question results.
+    // Derive finalScore from totalRaw using the assessment scale — this is the
+    // single source of truth and avoids rounding drift from summing per-question values.
     final totalRaw = parsedQuestions.fold<double>(0, (sum, qr) => sum + qr.rawScore);
     final totalConverted = double.parse(
-      parsedQuestions.fold<double>(0, (sum, qr) => sum + qr.convertedScore).toStringAsFixed(2),
+      (assessment.totalRawScore > 0
+              ? (totalRaw / assessment.totalRawScore * assessment.totalConvertedScore)
+                  .clamp(0.0, assessment.totalConvertedScore)
+              : parsedQuestions
+                  .fold<double>(0, (sum, qr) => sum + qr.convertedScore)
+                  .clamp(0.0, assessment.totalConvertedScore))
+          .toStringAsFixed(2),
     );
 
     final criteriaScores = <String, double>{

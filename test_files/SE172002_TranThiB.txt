@@ -1,7 +1,125 @@
-Dự án của em là xây dựng ứng dụng đặt đồ ăn cho sinh viên.
+# REQUEST 1 – PROJECT CHARTER STATEMENT
 
-Mục tiêu là giúp sinh viên đặt món nhanh hơn và tiện hơn. Các bên liên quan gồm sinh viên, quán ăn, đội phát triển và người giao hàng.
+## 1. Project Name
 
-Phạm vi dự án gồm đăng nhập, xem danh sách món ăn, đặt hàng và theo dõi đơn hàng.
+**Coi Cafe Central Region Expansion Project 2026**
 
-Lịch trình dự án khoảng 8 tuần. Các rủi ro chính là quán ăn cập nhật món chậm, ứng dụng có thể bị lỗi và dự án có thể bị trễ tiến độ.
+## 2. Project Justifications (Purpose & Reasons)
+
+Coi Cafe is a well-established Vietnamese coffee brand currently operating 12 stores in Hanoi and Ho Chi Minh City. Due to the increasing demand for nostalgic Vietnamese coffee spaces and sustainable consumption trends, the management team has decided to expand into the Central region of Vietnam, including Da Nang, Hue, Quang Nam, Quang Ngai, and Binh Dinh.
+
+The purpose of this project is to strengthen Coi Cafe’s market presence nationwide while maintaining its traditional Vietnamese identity and sustainable business values. The expansion will allow the company to reach new customer segments, increase revenue streams, and improve brand competitiveness in emerging urban markets of Central Vietnam.
+
+The project is also justified by several business opportunities:
+
+* Growing tourism and urban development in Central provinces.
+* Increasing consumer preference for authentic Vietnamese coffee experiences.
+* Strategic opportunity to establish early market presence before competitors expand aggressively.
+* Strengthening partnerships with regional suppliers and local communities.
+* Enhancing sustainability by integrating local sourcing and reusable packaging systems.
+
+The project aims to establish one flagship store in each province within 12 months and ensure that each store reaches break-even point within 8 months after launch.
+
+## 3. Project Constraints
+
+### Scope Constraints
+
+The project scope includes:
+
+* Surveying and selecting suitable premises in five provinces.
+* Designing and constructing interiors aligned with Coi Cafe’s nostalgic brand identity.
+* Recruiting and training local employees.
+* Building a raw material supply chain with Central region suppliers.
+* Executing store launch marketing campaigns.
+
+The project excludes:
+
+* Expansion outside the five targeted provinces.
+* Opening additional branches beyond one flagship store per province.
+
+### Time Constraints
+
+The entire project must be completed within **12 months**, including location selection, store construction, staff recruitment, supply chain setup, and store launch activities.
+
+Additionally, each store is required to achieve the **break-even point within 8 months** after opening.
+
+### Cost/Budget Constraints
+
+The total approved budget is **VND 8.5 billion**, averaging approximately **VND 1.7 billion per store**, funded through:
+
+* Company equity capital.
+* Commercial bank loans.
+
+The project team must carefully control spending to avoid cost overruns.
+
+### Quality Constraints
+
+Each new store must:
+
+* Maintain consistent nostalgic Vietnamese interior design aligned with the Coi Cafe brand.
+* Deliver standardized drink quality and customer service.
+* Follow sustainable business practices such as reusable cups and ethical sourcing.
+* Meet brand operational standards and customer satisfaction expectations.
+
+
+# REQUEST 2 – MAIN COST/BUDGET ITEMS
+
+| Cost Item                          | Description                                                                              | Estimated Budget | Estimation Method & Person in Charge                                                                                                             |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Premises Rental & Deposit          | Cost for leasing flagship store locations and paying deposits in 5 provinces             | VND 2.0 billion  | Estimated based on market rental rates and historical rental costs of similar stores. Conducted by Market Development Director and Finance Team. |
+| Interior Design & Construction     | Renovation, nostalgic decoration, furniture, lighting, signage, and branding elements    | VND 2.5 billion  | Bottom-up estimation using quotations from interior contractors and previous branch construction costs. Managed by Interior Design Team.         |
+| Recruitment & Staff Training       | Hiring baristas, store managers, and training costs for operations and customer service  | VND 800 million  | Analogous estimation based on previous store recruitment/training expenses. Managed by HR Team.                                                  |
+| Raw Material Supply Chain Setup    | Supplier onboarding, logistics setup, coffee bean sourcing, reusable cup inventory       | VND 1.2 billion  | Vendor quotation and supplier contract estimation. Managed by Procurement Team and PM.                                                           |
+| Marketing & Store Launch Campaigns | Grand opening events, digital marketing, local promotions, and brand awareness campaigns | VND 1.0 billion  | Parametric estimation based on marketing cost per store. Managed by Marketing Team.                                                              |
+| Contingency Reserve                | Emergency budget for unexpected delays or cost increases                                 | VND 1.0 billion  | Percentage-based reserve (approximately 10–12% of total project budget). Approved by PM and Finance Team.                                        |
+
+### Estimation Approaches Used
+
+1. **Analogous Estimation** – using historical data from Coi Cafe’s previous branches in Hanoi and Ho Chi Minh City.
+2. **Bottom-up Estimation** – calculating detailed costs for construction and equipment.
+3. **Vendor Quotation Estimation** – collecting quotations from suppliers and contractors.
+4. **Parametric Estimation** – calculating costs based on cost per store.
+
+
+# REQUEST 3 – PROJECT RISKS & RESPONSE PLAN
+
+| Risk Title                          | Description                                                                                                | Possible Impacts                                                                                                                         | Risk Response Plan                                                                                                                                                      |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Delay in Store Construction         | Construction contractors may fail to complete stores on schedule due to labor shortages or material delays | **Time:** project delays. **Cost:** increased labor and rental expenses. **Quality:** rushed construction may reduce quality             | **Mitigation:** select reliable contractors, monitor weekly progress, use milestone tracking. **Contingency:** hire backup contractors and allocate contingency budget. |
+| Difficulty Recruiting Skilled Staff | Local provinces may have limited experienced coffee shop employees                                         | **Scope/Quality:** poor customer service quality. **Time:** delayed store opening. **Cost:** increased recruitment and training expenses | **Mitigation:** early recruitment campaigns and training programs. **Contingency:** temporarily transfer experienced staff from Hanoi/HCM stores.                       |
+| Supply Chain Disruption             | Problems with supplier reliability or logistics for raw materials in Central region                        | **Quality:** inconsistent coffee/drink quality. **Cost:** increased logistics costs. **Time:** delayed operations                        | **Mitigation:** establish multiple suppliers and sign long-term contracts. **Contingency:** use existing Dak Lak supplier network temporarily.                          |
+
+# REQUEST 4 – RACI CHART
+
+## 1. Project Roles
+
+* **PM (Market Development Director)**
+* **Interior Design Team**
+* **HR Team**
+* **Marketing Team**
+* **Procurement/Supply Chain Team**
+
+### RACI Meaning
+
+* **R = Responsible** (does the work)
+* **A = Accountable** (owns final decision)
+* **C = Consulted** (provides input)
+* **I = Informed** (updated on progress)
+
+| Tasks / Activities / Deliverables | PM  | Interior Team | HR Team | Marketing Team | Procurement Team |
+| --------------------------------- | --- | ------------- | ------- | -------------- | ---------------- |
+| 1. Define project objectives      | A   | C             | C       | C              | I                |
+| 2. Conduct market survey          | A   | I             | I       | C              | C                |
+| 3. Select premises                | A   | C             | I       | I              | C                |
+| 4. Design store interiors         | C   | A/R           | I       | C              | I                |
+| 5. Construct/renovate stores      | A   | R             | I       | I              | C                |
+| 6. Recruit local employees        | I   | I             | A/R     | I              | I                |
+| 7. Conduct staff training         | C   | I             | A/R     | I              | I                |
+| 8. Build supplier network         | A   | I             | I       | I              | R                |
+| 9. Launch marketing campaign      | C   | I             | I       | A/R            | I                |
+| 10. Grand opening preparation     | A   | C             | C       | R              | C                |
+| 11. Monitor store performance     | A/R | I             | C       | C              | C                |
+| 12. Break-even evaluation         | A/R | I             | C       | C              | C                |
+
+
+
