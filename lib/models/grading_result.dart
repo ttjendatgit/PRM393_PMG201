@@ -9,6 +9,7 @@ class GradingResult {
   final Map<String, double> criteriaScores;
   final String feedback;
   final List<QuestionResult>? questionResults;
+  final String reviewerNote;
 
   GradingResult({
     required this.fileName,
@@ -19,5 +20,6 @@ class GradingResult {
     required this.criteriaScores,
     required this.feedback,
     this.questionResults,
+    this.reviewerNote = '',
   });
 }

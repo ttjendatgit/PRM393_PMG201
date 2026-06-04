@@ -77,6 +77,20 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
+  // ── Review save ───────────────────────────────────────────────────────────
+
+  void _saveReview(GradingResult updated) {
+    setState(() {
+      final idx = results.indexWhere((r) => r.fileName == updated.fileName);
+      if (idx >= 0) {
+        final copy = List<GradingResult>.from(results);
+        copy[idx] = updated;
+        results = copy;
+      }
+      message = 'Reviewed scores saved.';
+    });
+  }
+
   // ── AI configuration ──────────────────────────────────────────────────────
 
   void _updateApiKey(String value) => setState(() => _apiKey = value);
@@ -329,6 +343,7 @@ class _AppShellState extends State<AppShell> {
         xls.TextCellValue('Total Raw (/${totalRawMax.toInt()})'),
         xls.TextCellValue('Total Converted (/$totalConvMax)'),
         xls.TextCellValue('AI Comment'),
+        xls.TextCellValue('Reviewer Note'),
       ]);
 
       for (int i = 0; i < results.length; i++) {
@@ -346,6 +361,7 @@ class _AppShellState extends State<AppShell> {
           xls.DoubleCellValue(item.totalRawScore),
           xls.DoubleCellValue(item.finalScore),
           xls.TextCellValue(item.feedback),
+          xls.TextCellValue(item.reviewerNote),
         ]);
       }
     } else {
@@ -362,6 +378,7 @@ class _AppShellState extends State<AppShell> {
         xls.TextCellValue('Total Raw'),
         xls.TextCellValue('Total Converted'),
         xls.TextCellValue('AI Comment'),
+        xls.TextCellValue('Reviewer Note'),
       ]);
 
       for (int i = 0; i < results.length; i++) {
@@ -377,6 +394,7 @@ class _AppShellState extends State<AppShell> {
           xls.DoubleCellValue(item.totalRawScore),
           xls.DoubleCellValue(item.finalScore),
           xls.TextCellValue(item.feedback),
+          xls.TextCellValue(item.reviewerNote),
         ]);
       }
     }
@@ -457,6 +475,7 @@ class _AppShellState extends State<AppShell> {
         submission: selectedSubmission,
         result: selectedResult,
         onGradeAll: gradeAll,
+        onSaveReview: _saveReview,
         aiMode: _aiMode,
         assessment: currentAssessment,
       ),

@@ -11,12 +11,55 @@ import '../widgets/page_title.dart';
 import '../widgets/status_pill.dart';
 import '../widgets/tiny_tag.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Mutable edit state for one question during human review
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _QuestionEditState {
+  final String questionId;
+  final String questionTitle;
+  final double maxRawScore;
+  final double maxConvertedScore;
+  double rawScore;
+  double convertedScore;
+
+  _QuestionEditState({
+    required this.questionId,
+    required this.questionTitle,
+    required this.maxRawScore,
+    required this.maxConvertedScore,
+    required double initialRaw,
+  })  : rawScore = initialRaw.clamp(0.0, maxRawScore),
+        convertedScore = maxRawScore > 0
+            ? double.parse(
+                (initialRaw.clamp(0.0, maxRawScore) /
+                        maxRawScore *
+                        maxConvertedScore)
+                    .toStringAsFixed(2),
+              )
+            : 0.0;
+
+  void updateRaw(double newRaw) {
+    rawScore = newRaw.clamp(0.0, maxRawScore);
+    convertedScore = maxRawScore > 0
+        ? double.parse(
+            (rawScore / maxRawScore * maxConvertedScore).toStringAsFixed(2),
+          )
+        : 0.0;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GradingPage
+// ─────────────────────────────────────────────────────────────────────────────
+
 class GradingPage extends StatelessWidget {
   const GradingPage({
     super.key,
     required this.submission,
     required this.result,
     required this.onGradeAll,
+    required this.onSaveReview,
     required this.aiMode,
     required this.assessment,
   });
@@ -24,6 +67,7 @@ class GradingPage extends StatelessWidget {
   final Submission? submission;
   final GradingResult? result;
   final VoidCallback onGradeAll;
+  final ValueChanged<GradingResult> onSaveReview;
   final AiMode aiMode;
   final Assessment? assessment;
 
@@ -51,6 +95,7 @@ class GradingPage extends StatelessWidget {
 
     return Row(
       children: [
+        // Left pane — submission content
         Expanded(
           child: Container(
             color: const Color(0xFF060E20),
@@ -116,9 +161,11 @@ class GradingPage extends StatelessWidget {
             ),
           ),
         ),
+        // Right pane — AI analysis + review
         AiPanel(
           result: result,
           onGradeAll: onGradeAll,
+          onSaveReview: onSaveReview,
           aiMode: aiMode,
           assessment: assessment,
         ),
@@ -127,19 +174,158 @@ class GradingPage extends StatelessWidget {
   }
 }
 
-class AiPanel extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────────────────────
+// AiPanel — stateful to manage review editing
+// ─────────────────────────────────────────────────────────────────────────────
+
+class AiPanel extends StatefulWidget {
   const AiPanel({
     super.key,
     required this.result,
     required this.onGradeAll,
+    required this.onSaveReview,
     required this.aiMode,
     required this.assessment,
   });
 
   final GradingResult? result;
   final VoidCallback onGradeAll;
+  final ValueChanged<GradingResult> onSaveReview;
   final AiMode aiMode;
   final Assessment? assessment;
+
+  @override
+  State<AiPanel> createState() => _AiPanelState();
+}
+
+class _AiPanelState extends State<AiPanel> {
+  List<_QuestionEditState> _editStates = [];
+  final List<TextEditingController> _rawControllers = [];
+  final List<TextEditingController> _commentControllers = [];
+  final TextEditingController _reviewerNoteController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _initEditStates();
+  }
+
+  @override
+  void didUpdateWidget(AiPanel old) {
+    super.didUpdateWidget(old);
+    // Reinitialise when switching to a different submission or when AI results
+    // arrive for the first time (null → non-null questionResults).
+    if (old.result?.fileName != widget.result?.fileName ||
+        (widget.result?.questionResults != null &&
+            old.result?.questionResults == null)) {
+      _initEditStates();
+    }
+  }
+
+  void _initEditStates() {
+    for (final c in _rawControllers) { c.dispose(); }
+    _rawControllers.clear();
+    for (final c in _commentControllers) { c.dispose(); }
+    _commentControllers.clear();
+    _editStates = [];
+
+    final qrs = widget.result?.questionResults;
+    if (qrs != null) {
+      for (final qr in qrs) {
+        _editStates.add(_QuestionEditState(
+          questionId: qr.questionId,
+          questionTitle: qr.questionTitle,
+          maxRawScore: qr.maxRawScore,
+          maxConvertedScore: qr.maxConvertedScore,
+          initialRaw: qr.rawScore,
+        ));
+        _rawControllers.add(
+          TextEditingController(text: qr.rawScore.toInt().toString()),
+        );
+        _commentControllers.add(
+          TextEditingController(text: qr.comment),
+        );
+      }
+    }
+
+    _reviewerNoteController.text = widget.result?.reviewerNote ?? '';
+  }
+
+  @override
+  void dispose() {
+    for (final c in _rawControllers) { c.dispose(); }
+    for (final c in _commentControllers) { c.dispose(); }
+    _reviewerNoteController.dispose();
+    super.dispose();
+  }
+
+  // ── Computed totals from live edit state ──────────────────────────────────
+
+  double get _totalRaw =>
+      _editStates.fold(0.0, (sum, s) => sum + s.rawScore);
+
+  double get _totalConverted => double.parse(
+        _editStates
+            .fold<double>(0.0, (sum, s) => sum + s.convertedScore)
+            .toStringAsFixed(2),
+      );
+
+  // ── Callbacks ─────────────────────────────────────────────────────────────
+
+  void _onRawChanged(int idx, String value) {
+    final raw = double.tryParse(value);
+    if (raw == null) return;
+    setState(() {
+      _editStates[idx].updateRaw(raw);
+      // Correct the text if the value was clamped
+      final clamped = _editStates[idx].rawScore;
+      if (clamped != raw) {
+        final corrected = clamped.toInt().toString();
+        _rawControllers[idx].value = TextEditingValue(
+          text: corrected,
+          selection: TextSelection.collapsed(offset: corrected.length),
+        );
+      }
+    });
+  }
+
+  void _saveReview() {
+    final qrs = List.generate(_editStates.length, (i) {
+      final state = _editStates[i];
+      final original = widget.result!.questionResults![i];
+      return QuestionResult(
+        questionId: original.questionId,
+        questionTitle: original.questionTitle,
+        rawScore: state.rawScore,
+        convertedScore: state.convertedScore,
+        maxRawScore: original.maxRawScore,
+        maxConvertedScore: original.maxConvertedScore,
+        comment: _commentControllers[i].text,
+        subscores: original.subscores,
+      );
+    });
+
+    final totalRaw = qrs.fold<double>(0.0, (s, q) => s + q.rawScore);
+    final totalConverted = double.parse(
+      qrs.fold<double>(0.0, (s, q) => s + q.convertedScore).toStringAsFixed(2),
+    );
+
+    final updated = GradingResult(
+      fileName: widget.result!.fileName,
+      studentId: widget.result!.studentId,
+      studentName: widget.result!.studentName,
+      totalRawScore: totalRaw,
+      finalScore: totalConverted,
+      criteriaScores: {for (final qr in qrs) qr.questionTitle: qr.convertedScore},
+      feedback: widget.result!.feedback,
+      questionResults: qrs,
+      reviewerNote: _reviewerNoteController.text.trim(),
+    );
+
+    widget.onSaveReview(updated);
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -151,60 +337,45 @@ class AiPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Container(
-            height: 58,
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            decoration: const BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: AppColors.outlineVariant),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  aiMode == AiMode.openRouter
-                      ? Icons.hub_rounded
-                      : Icons.science_rounded,
-                  color: AppColors.primary,
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  'AI Analysis Panel',
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const Spacer(),
-                StatusPill(
-                  text: result == null ? 'Pending' : 'Complete',
-                  color: result == null ? AppColors.muted : AppColors.primary,
-                ),
-              ],
+          _buildPanelHeader(),
+          Expanded(
+            child: widget.result == null
+                ? _buildPendingState()
+                : _buildResultState(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPanelHeader() {
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.outlineVariant)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            widget.aiMode == AiMode.openRouter
+                ? Icons.hub_rounded
+                : Icons.science_rounded,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'AI Analysis Panel',
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
             ),
           ),
-          Expanded(
-            child: result == null
-                ? _buildPendingState()
-                : ListView(
-                    padding: const EdgeInsets.all(24),
-                    children: [
-                      ScoreCard(
-                        result: result!,
-                        maxRawScore: assessment?.totalRawScore ?? 100,
-                        maxConvertedScore: assessment?.totalConvertedScore ?? 10,
-                      ),
-                      const SizedBox(height: 18),
-                      result!.questionResults != null
-                          ? QuestionResultList(
-                              questionResults: result!.questionResults!,
-                            )
-                          : CriteriaMiniGrid(result: result!),
-                      const SizedBox(height: 22),
-                      FeedbackBox(feedback: result!.feedback),
-                    ],
-                  ),
+          const Spacer(),
+          StatusPill(
+            text: widget.result == null ? 'Pending' : 'Complete',
+            color: widget.result == null ? AppColors.muted : AppColors.primary,
           ),
         ],
       ),
@@ -217,7 +388,7 @@ class AiPanel extends StatelessWidget {
       child: Column(
         children: [
           EmptyCard(
-            text: aiMode == AiMode.openRouter
+            text: widget.aiMode == AiMode.openRouter
                 ? 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is saved, then click Grade with OpenRouter AI.'
                 : 'This submission has not been graded yet. Click Grade with AI to run mock grading.',
           ),
@@ -227,31 +398,115 @@ class AiPanel extends StatelessWidget {
               backgroundColor: AppColors.primaryContainer,
               foregroundColor: AppColors.text,
             ),
-            onPressed: onGradeAll,
+            onPressed: widget.onGradeAll,
             icon: Icon(
-              aiMode == AiMode.openRouter
+              widget.aiMode == AiMode.openRouter
                   ? Icons.hub_rounded
                   : Icons.auto_awesome_rounded,
             ),
             label: Text(
-              aiMode == AiMode.openRouter ? 'Grade with OpenRouter AI' : 'Grade with AI',
+              widget.aiMode == AiMode.openRouter
+                  ? 'Grade with OpenRouter AI'
+                  : 'Grade with AI',
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildResultState() {
+    final hasQR = _editStates.isNotEmpty;
+    final displayRaw =
+        hasQR ? _totalRaw : widget.result!.totalRawScore;
+    final displayConverted =
+        hasQR ? _totalConverted : widget.result!.finalScore;
+
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        ScoreCard(
+          totalRawScore: displayRaw,
+          finalScore: displayConverted,
+          maxRawScore: widget.assessment?.totalRawScore ?? 100,
+          maxConvertedScore: widget.assessment?.totalConvertedScore ?? 10,
+        ),
+        const SizedBox(height: 18),
+        if (hasQR) ...[
+          _sectionLabel('QUESTION BREAKDOWN'),
+          const SizedBox(height: 10),
+          ...List.generate(
+            _editStates.length,
+            (i) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _EditableQuestionCard(
+                state: _editStates[i],
+                rawController: _rawControllers[i],
+                commentController: _commentControllers[i],
+                onRawChanged: (v) => _onRawChanged(i, v),
+              ),
+            ),
+          ),
+        ] else
+          CriteriaMiniGrid(result: widget.result!),
+        const SizedBox(height: 18),
+        _sectionLabel('REVIEWER NOTE'),
+        const SizedBox(height: 8),
+        _ReviewerNoteField(controller: _reviewerNoteController),
+        const SizedBox(height: 18),
+        _sectionLabel('AI COMMENT'),
+        const SizedBox(height: 8),
+        FeedbackBox(feedback: widget.result!.feedback),
+        const SizedBox(height: 18),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primaryContainer,
+              foregroundColor: AppColors.text,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: _saveReview,
+            icon: const Icon(Icons.save_rounded),
+            label: const Text(
+              'Save Reviewed Scores',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionLabel(String text) => Text(
+        text,
+        style: const TextStyle(
+          color: AppColors.muted,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.2,
+        ),
+      );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ScoreCard — displays live totals (raw + converted)
+// ─────────────────────────────────────────────────────────────────────────────
 
 class ScoreCard extends StatelessWidget {
   const ScoreCard({
     super.key,
-    required this.result,
+    required this.totalRawScore,
+    required this.finalScore,
     required this.maxRawScore,
     required this.maxConvertedScore,
   });
 
-  final GradingResult result;
+  final double totalRawScore;
+  final double finalScore;
   final double maxRawScore;
   final double maxConvertedScore;
 
@@ -263,11 +518,13 @@ class ScoreCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rawProgress =
-        maxRawScore > 0 ? (result.totalRawScore / maxRawScore).clamp(0.0, 1.0) : 0.0;
+        maxRawScore > 0 ? (totalRawScore / maxRawScore).clamp(0.0, 1.0) : 0.0;
     final convProgress =
-        maxConvertedScore > 0 ? (result.finalScore / maxConvertedScore).clamp(0.0, 1.0) : 0.0;
+        maxConvertedScore > 0
+            ? (finalScore / maxConvertedScore).clamp(0.0, 1.0)
+            : 0.0;
     final threshold = maxConvertedScore * 0.6;
-    final passed = result.finalScore >= threshold;
+    final passed = finalScore >= threshold;
 
     return Container(
       padding: const EdgeInsets.all(22),
@@ -289,16 +546,19 @@ class ScoreCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          // Raw Score row
           Row(
             children: [
               const Text(
                 'Raw Score',
-                style: TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
               Text(
-                '${_fmt(result.totalRawScore, integer: true)} / ${_fmt(maxRawScore, integer: true)}',
+                '${_fmt(totalRawScore, integer: true)} / ${_fmt(maxRawScore, integer: true)}',
                 style: const TextStyle(
                   color: AppColors.text,
                   fontSize: 20,
@@ -315,19 +575,22 @@ class ScoreCard extends StatelessWidget {
             color: AppColors.outlineVariant,
           ),
           const SizedBox(height: 16),
-          // Converted Score row
           Row(
             children: [
               const Text(
                 'Converted Score',
-                style: TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    result.finalScore.toStringAsFixed(1),
+                    finalScore.toStringAsFixed(1),
                     style: const TextStyle(
                       color: AppColors.primary,
                       fontSize: 44,
@@ -340,7 +603,10 @@ class ScoreCard extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 5),
                     child: Text(
                       '/ ${_fmt(maxConvertedScore)}',
-                      style: const TextStyle(color: AppColors.muted, fontSize: 18),
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 18,
+                      ),
                     ),
                   ),
                 ],
@@ -378,48 +644,58 @@ class ScoreCard extends StatelessWidget {
   }
 }
 
-class QuestionResultList extends StatelessWidget {
-  const QuestionResultList({super.key, required this.questionResults});
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers shared by editable cards
+// ─────────────────────────────────────────────────────────────────────────────
 
-  final List<QuestionResult> questionResults;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'QUESTION BREAKDOWN',
-          style: TextStyle(
-            color: AppColors.muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.2,
-          ),
-        ),
-        const SizedBox(height: 10),
-        ...questionResults.map(
-          (qr) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _QuestionResultCard(qr: qr),
-          ),
-        ),
-      ],
+InputDecoration _fieldDec({String? hint}) => InputDecoration(
+      hintText: hint,
+      hintStyle: hint != null
+          ? const TextStyle(color: AppColors.outlineVariant, fontSize: 12)
+          : null,
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      isDense: true,
+      filled: true,
+      fillColor: AppColors.surfaceHigh,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.outlineVariant),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.outlineVariant),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.primary),
+      ),
     );
-  }
-}
 
-class _QuestionResultCard extends StatelessWidget {
-  const _QuestionResultCard({required this.qr});
+// ─────────────────────────────────────────────────────────────────────────────
+// Editable question card (used during human review)
+// ─────────────────────────────────────────────────────────────────────────────
 
-  final QuestionResult qr;
+class _EditableQuestionCard extends StatelessWidget {
+  const _EditableQuestionCard({
+    required this.state,
+    required this.rawController,
+    required this.commentController,
+    required this.onRawChanged,
+  });
 
-  String _fmtMax(double v) => v % 1 == 0 ? v.toInt().toString() : v.toString();
+  final _QuestionEditState state;
+  final TextEditingController rawController;
+  final TextEditingController commentController;
+  final ValueChanged<String> onRawChanged;
+
+  String _fmtMax(double v) =>
+      v % 1 == 0 ? v.toInt().toString() : v.toString();
 
   @override
   Widget build(BuildContext context) {
-    final progress = qr.maxRawScore > 0
-        ? (qr.rawScore / qr.maxRawScore).clamp(0.0, 1.0)
+    final progress = state.maxRawScore > 0
+        ? (state.rawScore / state.maxRawScore).clamp(0.0, 1.0)
         : 0.0;
 
     return Container(
@@ -432,12 +708,13 @@ class _QuestionResultCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Title + live converted tag
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Text(
-                  qr.questionTitle,
+                  state.questionTitle,
                   style: const TextStyle(
                     color: AppColors.text,
                     fontWeight: FontWeight.w800,
@@ -446,17 +723,50 @@ class _QuestionResultCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  TinyTag(
-                    text: 'Raw  ${qr.rawScore.toInt()} / ${_fmtMax(qr.maxRawScore)}',
+              TinyTag(
+                text:
+                    'Conv  ${state.convertedScore.toStringAsFixed(1)} / ${_fmtMax(state.maxConvertedScore)}',
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Raw score input
+          Row(
+            children: [
+              const Text(
+                'Raw',
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 64,
+                child: TextField(
+                  controller: rawController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: false,
+                    signed: false,
                   ),
-                  const SizedBox(height: 4),
-                  TinyTag(
-                    text: 'Conv  ${qr.convertedScore.toStringAsFixed(1)} / ${_fmtMax(qr.maxConvertedScore)}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
                   ),
-                ],
+                  decoration: _fieldDec(),
+                  onChanged: onRawChanged,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '/ ${_fmtMax(state.maxRawScore)}',
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
@@ -467,22 +777,73 @@ class _QuestionResultCard extends StatelessWidget {
             backgroundColor: AppColors.surfaceHigh,
             color: AppColors.primary,
           ),
-          if (qr.comment.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              qr.comment,
-              style: const TextStyle(
-                color: AppColors.muted,
-                fontSize: 12,
-                height: 1.45,
-              ),
+          const SizedBox(height: 10),
+          // Comment field
+          TextField(
+            controller: commentController,
+            maxLines: 2,
+            style: const TextStyle(
+              color: AppColors.muted,
+              fontSize: 12,
+              height: 1.45,
             ),
-          ],
+            decoration: _fieldDec(hint: 'Comment…'),
+          ),
         ],
       ),
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reviewer note text field
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ReviewerNoteField extends StatelessWidget {
+  const _ReviewerNoteField({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      maxLines: 3,
+      style: const TextStyle(
+        color: AppColors.text,
+        fontSize: 13,
+        height: 1.45,
+      ),
+      decoration: InputDecoration(
+        hintText: 'Add reviewer notes here…',
+        hintStyle: const TextStyle(
+          color: AppColors.outlineVariant,
+          fontSize: 13,
+        ),
+        contentPadding: const EdgeInsets.all(12),
+        isDense: true,
+        filled: true,
+        fillColor: AppColors.surfaceHigh,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.primary),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CriteriaMiniGrid — fallback for mock results (no questionResults)
+// ─────────────────────────────────────────────────────────────────────────────
 
 class CriteriaMiniGrid extends StatelessWidget {
   const CriteriaMiniGrid({super.key, required this.result});
@@ -505,7 +866,6 @@ class CriteriaMiniGrid extends StatelessWidget {
       ),
       itemBuilder: (context, index) {
         final item = entries[index];
-
         return Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -542,6 +902,10 @@ class CriteriaMiniGrid extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FeedbackBox — read-only AI comment
+// ─────────────────────────────────────────────────────────────────────────────
+
 class FeedbackBox extends StatelessWidget {
   const FeedbackBox({super.key, required this.feedback});
 
@@ -549,32 +913,17 @@ class FeedbackBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'FINAL COMMENT',
-          style: TextStyle(
-            color: AppColors.muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.2,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceContainer,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.outlineVariant),
-          ),
-          child: Text(
-            feedback,
-            style: const TextStyle(color: AppColors.text, height: 1.55),
-          ),
-        ),
-      ],
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.outlineVariant),
+      ),
+      child: Text(
+        feedback,
+        style: const TextStyle(color: AppColors.text, height: 1.55),
+      ),
     );
   }
 }

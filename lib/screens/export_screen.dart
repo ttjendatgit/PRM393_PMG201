@@ -122,6 +122,7 @@ class _ExportTable extends StatelessWidget {
         const DataColumn(label: TableHeader('TOTAL RAW')),
         const DataColumn(label: TableHeader('TOTAL CONV')),
         const DataColumn(label: TableHeader('AI COMMENT')),
+        const DataColumn(label: TableHeader('REVIEWER NOTE')),
       ],
       rows: results.map((item) {
         final qrs = item.questionResults ?? <QuestionResult>[];
@@ -137,9 +138,19 @@ class _ExportTable extends StatelessWidget {
           DataCell(ScoreBubble(score: item.finalScore)),
           DataCell(
             SizedBox(
-              width: 320,
+              width: 260,
               child: Text(
                 item.feedback,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.muted),
+              ),
+            ),
+          ),
+          DataCell(
+            SizedBox(
+              width: 200,
+              child: Text(
+                item.reviewerNote,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: AppColors.muted),
               ),
@@ -168,6 +179,7 @@ class _ExportTable extends StatelessWidget {
         ),
         const DataColumn(label: TableHeader('TOTAL CONV')),
         const DataColumn(label: TableHeader('AI COMMENT')),
+        const DataColumn(label: TableHeader('REVIEWER NOTE')),
       ],
       rows: results.map((item) {
         return DataRow(cells: [
@@ -180,9 +192,19 @@ class _ExportTable extends StatelessWidget {
           DataCell(ScoreBubble(score: item.finalScore)),
           DataCell(
             SizedBox(
-              width: 360,
+              width: 280,
               child: Text(
                 item.feedback,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.muted),
+              ),
+            ),
+          ),
+          DataCell(
+            SizedBox(
+              width: 200,
+              child: Text(
+                item.reviewerNote,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: AppColors.muted),
               ),
