@@ -17,6 +17,7 @@ import 'screens/export_screen.dart';
 import 'screens/grading_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/ai/gemini_grading_service.dart';
 import 'services/ai/openrouter_grading_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/side_nav.dart';
@@ -63,6 +64,8 @@ class _AppShellState extends State<AppShell> {
   // AI configuration — stored in memory only, never persisted to disk
   String _apiKey = '';
   String _modelId = 'openrouter/free';
+  String _geminiApiKey = '';
+  String _geminiModelId = 'gemini-2.0-flash-lite';
   AiMode _aiMode = AiMode.mock;
 
   bool isGrading = false;
@@ -99,6 +102,9 @@ class _AppShellState extends State<AppShell> {
   void _updateApiKey(String value) => setState(() => _apiKey = value);
   void _clearApiKey() => setState(() => _apiKey = '');
   void _updateModelId(String value) => setState(() => _modelId = value);
+  void _updateGeminiApiKey(String value) => setState(() => _geminiApiKey = value);
+  void _clearGeminiApiKey() => setState(() => _geminiApiKey = '');
+  void _updateGeminiModelId(String value) => setState(() => _geminiModelId = value);
   void _updateAiMode(AiMode mode) => setState(() => _aiMode = mode);
 
   // ── File import ───────────────────────────────────────────────────────────
@@ -168,12 +174,34 @@ class _AppShellState extends State<AppShell> {
       }
     }
 
+    if (_aiMode == AiMode.gemini) {
+      if (_geminiApiKey.trim().isEmpty) {
+        setState(() => message = 'Please enter Gemini API key in Settings.');
+        return;
+      }
+      if (_geminiModelId.trim().isEmpty) {
+        setState(() => message = 'Please enter a Gemini Model ID in Settings.');
+        return;
+      }
+      if (currentAssessment == null) {
+        setState(
+          () => message =
+              'Please load or create an assessment first (Assessment Setup).',
+        );
+        return;
+      }
+    }
+
     setState(() {
       isGrading = true;
       results = [];
-      message = _aiMode == AiMode.mock
-          ? 'Mock AI grading started...'
-          : 'OpenRouter AI grading started (${submissions.length} file(s))...';
+      message = switch (_aiMode) {
+        AiMode.mock => 'Mock AI grading started...',
+        AiMode.openRouter =>
+          'OpenRouter AI grading started (${submissions.length} file(s))...',
+        AiMode.gemini =>
+          'Gemini AI grading started (${submissions.length} file(s))...',
+      };
     });
 
     final temp = <GradingResult>[];
@@ -185,6 +213,13 @@ class _AppShellState extends State<AppShell> {
         if (_aiMode == AiMode.mock) {
           await Future.delayed(const Duration(milliseconds: 650));
           result = _mockGrade(submission);
+        } else if (_aiMode == AiMode.gemini) {
+          result = await GeminiGradingService.gradeSubmission(
+            apiKey: _geminiApiKey,
+            modelId: _geminiModelId,
+            assessment: currentAssessment!,
+            submission: submission,
+          );
         } else {
           result = await OpenRouterGradingService.gradeSubmission(
             apiKey: _apiKey,
@@ -220,9 +255,13 @@ class _AppShellState extends State<AppShell> {
 
     setState(() {
       isGrading = false;
-      message = _aiMode == AiMode.mock
-          ? 'Mock grading complete. ${temp.length} result(s) ready.'
-          : 'OpenRouter grading complete. ${temp.length} result(s) ready.';
+      message = switch (_aiMode) {
+        AiMode.mock => 'Mock grading complete. ${temp.length} result(s) ready.',
+        AiMode.openRouter =>
+          'OpenRouter grading complete. ${temp.length} result(s) ready.',
+        AiMode.gemini =>
+          'Gemini grading complete. ${temp.length} result(s) ready.',
+      };
       selectedIndex = 3; // Grading screen
     });
   }
@@ -605,10 +644,15 @@ class _AppShellState extends State<AppShell> {
       SettingsScreen(
         apiKey: _apiKey,
         modelId: _modelId,
+        geminiApiKey: _geminiApiKey,
+        geminiModelId: _geminiModelId,
         aiMode: _aiMode,
         onSaveApiKey: _updateApiKey,
         onClearApiKey: _clearApiKey,
         onSaveModelId: _updateModelId,
+        onSaveGeminiApiKey: _updateGeminiApiKey,
+        onClearGeminiApiKey: _clearGeminiApiKey,
+        onSaveGeminiModelId: _updateGeminiModelId,
         onChangeAiMode: _updateAiMode,
       ),
     ];

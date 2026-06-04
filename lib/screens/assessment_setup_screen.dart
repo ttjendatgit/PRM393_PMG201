@@ -1,9 +1,9 @@
-import 'dart:io';
-
 import 'package:file_picker/file_picker.dart' as fp;
 import 'package:flutter/material.dart';
 import '../data/pmg201c_pe2_sample_assessment.dart';
 import '../models/assessment.dart';
+import '../services/file/document_text_extractor_service.dart';
+import '../services/rubric_parser_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_frame.dart';
 import '../widgets/page_title.dart';
@@ -62,41 +62,74 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
 
   // ── Import helpers ─────────────────────────────────────────────────────────
 
+  static const _assessmentExtensions = [
+    'txt', 'md', 'docx', 'pdf', 'csv', 'xlsx',
+  ];
+
   Future<void> _importExamQuestion() async {
-    final result = await fp.FilePicker.pickFiles(
-      type: fp.FileType.custom,
-      allowedExtensions: ['txt'],
+    await _pickAndExtract(
+      label: 'Exam question',
+      controller: _examQuestionsController,
     );
-    if (result == null || result.files.isEmpty) return;
-    final path = result.files.first.path;
-    if (path == null) return;
-    final content = await File(path).readAsString();
-    setState(() => _examQuestionsController.text = content);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Exam question file imported.'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
   }
 
   Future<void> _importGradingGuide() async {
-    final result = await fp.FilePicker.pickFiles(
-      type: fp.FileType.custom,
-      allowedExtensions: ['txt'],
+    await _pickAndExtract(
+      label: 'Grading guide',
+      controller: _gradingGuideController,
     );
-    if (result == null || result.files.isEmpty) return;
-    final path = result.files.first.path;
+  }
+
+  /// Shared pick-and-extract flow used by both import buttons.
+  Future<void> _pickAndExtract({
+    required String label,
+    required TextEditingController controller,
+  }) async {
+    final picked = await fp.FilePicker.pickFiles(
+      type: fp.FileType.custom,
+      allowedExtensions: _assessmentExtensions,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final path = picked.files.first.path;
     if (path == null) return;
-    final content = await File(path).readAsString();
-    setState(() => _gradingGuideController.text = content);
-    if (mounted) {
+
+    final result =
+        await DocumentTextExtractorService.extractTextFromFile(path);
+
+    if (!mounted) return;
+
+    if (result.hasError) {
+      // Hard failure — show error, leave field untouched
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Grading guide file imported.'),
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: Text(result.errorMessage!),
+          backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+      return;
+    }
+
+    // Fill the text field with whatever was extracted (may be empty for scanned PDF)
+    setState(() => controller.text = result.extractedText);
+
+    if (result.hasWarning) {
+      // Warning — extraction succeeded but review is recommended
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠ ${result.warningMessage}'),
+          backgroundColor: const Color(0xFF7A5C00),
+          duration: const Duration(seconds: 7),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$label file imported (${result.extension.toUpperCase()}). '
+            'Please review the extracted text before applying.',
+          ),
+          duration: const Duration(seconds: 3),
         ),
       );
     }
@@ -130,9 +163,11 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
     } else if (title.isEmpty) {
       error = 'Assessment title is required.';
     } else if (examText.isEmpty) {
-      error = 'Exam question text is required. Paste text or import a .txt file.';
+      error = 'Exam question text is required. '
+          'Import a file (txt, md, docx, pdf, csv, xlsx) or paste text manually.';
     } else if (guideText.isEmpty) {
-      error = 'Grading guide text is required. Paste text or import a .txt file.';
+      error = 'Grading guide text is required. '
+          'Import a file (txt, md, docx, pdf, csv, xlsx) or paste text manually.';
     }
 
     if (error != null) {
@@ -146,27 +181,47 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       return;
     }
 
+    // ── Parse grading guide into structured rubric items ──────────────────
+    const double defaultTotalRaw = 100;
+    const double defaultTotalConv = 10;
+
+    final parseResult = RubricParserService.parse(
+      guideText: guideText,
+      totalRawScore: defaultTotalRaw,
+      totalConvertedScore: defaultTotalConv,
+    );
+
     final assessment = Assessment(
       assessmentId: 'custom-${DateTime.now().millisecondsSinceEpoch}',
       courseCode: courseCode,
       assessmentTitle: title,
       examQuestionText: examText,
       gradingGuideText: guideText,
-      totalRawScore: 100,
-      totalConvertedScore: 10,
-      questions: const [],
+      totalRawScore: parseResult.detectedTotalRaw,
+      totalConvertedScore: defaultTotalConv,
+      questions: parseResult.questions,
       createdAt: DateTime.now(),
     );
 
     widget.onApplyAssessment(assessment);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Assessment "$title" applied.'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
+
+    if (!mounted) return;
+
+    final hadRubric = parseResult.questions.isNotEmpty;
+    final msg = hadRubric
+        ? 'Structured rubric parsed successfully '
+            '(${parseResult.questions.length} items, '
+            'total raw ${parseResult.detectedTotalRaw.toInt()}).'
+        : 'Assessment loaded as text only. '
+            'No structured rubric items detected.';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: hadRubric ? null : AppColors.error.withAlpha(200),
+        duration: Duration(seconds: hadRubric ? 3 : 5),
+      ),
+    );
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -234,7 +289,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                           onPressed: _importExamQuestion,
                           icon: const Icon(Icons.upload_file_rounded, size: 18),
                           label: const Text(
-                            'Import Exam Question .txt',
+                            'Import Exam Question File',
                             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                           ),
                         ),
@@ -253,7 +308,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                           onPressed: _importGradingGuide,
                           icon: const Icon(Icons.upload_file_rounded, size: 18),
                           label: const Text(
-                            'Import Grading Guide .txt',
+                            'Import Grading Guide File',
                             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                           ),
                         ),

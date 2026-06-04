@@ -8,6 +8,9 @@ class PromptBuilderService {
     required Submission submission,
   }) {
     final rubricJson = _buildRubricJson(assessment);
+    final rubricStructureSection = assessment.questions.isEmpty
+        ? "No structured rubric found. Please infer the grading rubric and criteria from the GRADING GUIDE / RUBRIC text provided below to perform the evaluation."
+        : "RUBRIC STRUCTURE (JSON)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n$rubricJson";
 
     return '''
 You are an academic grader for ${assessment.courseCode} — ${assessment.assessmentTitle}.
@@ -25,9 +28,7 @@ GRADING GUIDE / RUBRIC
 ${assessment.gradingGuideText.trim()}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RUBRIC STRUCTURE (JSON)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-$rubricJson
+$rubricStructureSection
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STUDENT SUBMISSION
@@ -46,7 +47,7 @@ GRADING INSTRUCTIONS
 5. Return your response as a single JSON object ONLY. No markdown fences. No explanation outside the JSON.
 6. For each question, assign raw_score (integer, within 0..max_raw_score) based on the rubric sub-criteria. Then compute: converted_score = raw_score / max_raw_score * max_converted_score (round to 2 decimal places). Do NOT independently guess or estimate the converted_score.
 7. Set total_raw_score = sum of all question raw_score values. Set total_converted_score = sum of all question converted_score values (round to 2 decimal places).
-
+${_inferInstructions(assessment)}
 EXPECTED OUTPUT FORMAT:
 {
   "file_name": "string",
@@ -77,6 +78,20 @@ EXPECTED OUTPUT FORMAT:
   "final_comment": "string"
 }
 ''';
+  }
+
+  /// Extra instruction injected when the rubric has no structured items.
+  static String _inferInstructions(Assessment assessment) {
+    if (assessment.questions.isNotEmpty) return '';
+    final maxRaw = assessment.totalRawScore.toInt();
+    final maxConv = assessment.totalConvertedScore % 1 == 0
+        ? assessment.totalConvertedScore.toInt().toString()
+        : assessment.totalConvertedScore.toString();
+    return '8. The RUBRIC STRUCTURE JSON above is empty because no structured items were '
+        'pre-parsed. Infer the question/criterion breakdown directly from the '
+        'GRADING GUIDE / RUBRIC text above. The total raw score for this '
+        'assessment is $maxRaw and the total converted score is $maxConv. '
+        'Ensure all question raw_score values sum to a value within that range.\n';
   }
 
   static String _buildRubricJson(Assessment assessment) {

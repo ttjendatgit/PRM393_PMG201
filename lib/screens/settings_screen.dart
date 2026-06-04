@@ -9,19 +9,33 @@ class SettingsScreen extends StatefulWidget {
     super.key,
     required this.apiKey,
     required this.modelId,
+    required this.geminiApiKey,
+    required this.geminiModelId,
     required this.aiMode,
     required this.onSaveApiKey,
     required this.onClearApiKey,
     required this.onSaveModelId,
+    required this.onSaveGeminiApiKey,
+    required this.onClearGeminiApiKey,
+    required this.onSaveGeminiModelId,
     required this.onChangeAiMode,
   });
 
+  // OpenRouter
   final String apiKey;
   final String modelId;
-  final AiMode aiMode;
   final ValueChanged<String> onSaveApiKey;
   final VoidCallback onClearApiKey;
   final ValueChanged<String> onSaveModelId;
+
+  // Gemini
+  final String geminiApiKey;
+  final String geminiModelId;
+  final ValueChanged<String> onSaveGeminiApiKey;
+  final VoidCallback onClearGeminiApiKey;
+  final ValueChanged<String> onSaveGeminiModelId;
+
+  final AiMode aiMode;
   final ValueChanged<AiMode> onChangeAiMode;
 
   @override
@@ -29,65 +43,107 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _apiKeyController = TextEditingController();
-  final _modelIdController = TextEditingController();
-  bool _obscure = true;
+  final _orKeyController = TextEditingController();
+  final _orModelController = TextEditingController();
+  final _geminiKeyController = TextEditingController();
+  final _geminiModelController = TextEditingController();
+
+  bool _orObscure = true;
+  bool _geminiObscure = true;
 
   @override
   void initState() {
     super.initState();
-    _apiKeyController.text = widget.apiKey;
-    _modelIdController.text = widget.modelId;
+    _orKeyController.text = widget.apiKey;
+    _orModelController.text = widget.modelId;
+    _geminiKeyController.text = widget.geminiApiKey;
+    _geminiModelController.text = widget.geminiModelId;
   }
 
   @override
   void dispose() {
-    _apiKeyController.dispose();
-    _modelIdController.dispose();
+    _orKeyController.dispose();
+    _orModelController.dispose();
+    _geminiKeyController.dispose();
+    _geminiModelController.dispose();
     super.dispose();
   }
 
-  void _saveApiKey() {
-    final key = _apiKeyController.text.trim();
+  // ── OpenRouter callbacks ───────────────────────────────────────────────────
+
+  void _saveOrKey() {
+    final key = _orKeyController.text.trim();
     widget.onSaveApiKey(key);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content:
-              Text(key.isEmpty
-                  ? 'OpenRouter API key cleared.'
-                  : 'OpenRouter API key saved for this session.'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(key.isEmpty
+            ? 'OpenRouter API key cleared.'
+            : 'OpenRouter API key saved for this session.'),
+        duration: const Duration(seconds: 2),
+      ));
     }
   }
 
-  void _clearApiKey() {
-    _apiKeyController.clear();
+  void _clearOrKey() {
+    _orKeyController.clear();
     widget.onClearApiKey();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('API key cleared.'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('OpenRouter API key cleared.'),
+        duration: Duration(seconds: 2),
+      ));
     }
   }
 
-  void _saveModelId() {
-    final id = _modelIdController.text.trim();
+  void _saveOrModel() {
+    final id = _orModelController.text.trim();
     widget.onSaveModelId(id);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(id.isEmpty ? 'Model ID cleared.' : 'Model ID saved: $id'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(id.isEmpty ? 'Model ID cleared.' : 'OpenRouter model saved: $id'),
+        duration: const Duration(seconds: 2),
+      ));
     }
   }
+
+  // ── Gemini callbacks ───────────────────────────────────────────────────────
+
+  void _saveGeminiKey() {
+    final key = _geminiKeyController.text.trim();
+    widget.onSaveGeminiApiKey(key);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(key.isEmpty
+            ? 'Gemini API key cleared.'
+            : 'Gemini API key saved for this session.'),
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
+  void _clearGeminiKey() {
+    _geminiKeyController.clear();
+    widget.onClearGeminiApiKey();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Gemini API key cleared.'),
+        duration: Duration(seconds: 2),
+      ));
+    }
+  }
+
+  void _saveGeminiModel() {
+    final id = _geminiModelController.text.trim();
+    widget.onSaveGeminiModelId(id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(id.isEmpty ? 'Model ID cleared.' : 'Gemini model saved: $id'),
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -102,11 +158,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Configure your AI provider, API key, model, and grading mode for this session.',
             ),
             const SizedBox(height: 32),
-            _buildApiKeySection(),
-            const SizedBox(height: 24),
-            _buildModelSection(),
-            const SizedBox(height: 24),
             _buildAiModeSection(),
+            const SizedBox(height: 24),
+            _buildOrKeySection(),
+            const SizedBox(height: 24),
+            _buildOrModelSection(),
+            const SizedBox(height: 24),
+            _buildGeminiSection(),
             const SizedBox(height: 24),
             _buildSecuritySection(),
           ],
@@ -115,15 +173,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildApiKeySection() {
+  // ── AI Mode ────────────────────────────────────────────────────────────────
+
+  Widget _buildAiModeSection() {
+    return _SettingsCard(
+      title: 'AI PROVIDER',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SegmentedButton<AiMode>(
+            style: SegmentedButton.styleFrom(
+              backgroundColor: AppColors.surfaceHigh,
+              foregroundColor: AppColors.muted,
+              selectedForegroundColor: AppColors.text,
+              selectedBackgroundColor: AppColors.primaryContainer,
+              side: const BorderSide(color: AppColors.outlineVariant),
+            ),
+            segments: const [
+              ButtonSegment(
+                value: AiMode.mock,
+                label: Text('Mock AI'),
+                icon: Icon(Icons.science_rounded),
+              ),
+              ButtonSegment(
+                value: AiMode.openRouter,
+                label: Text('OpenRouter'),
+                icon: Icon(Icons.hub_rounded),
+              ),
+              ButtonSegment(
+                value: AiMode.gemini,
+                label: Text('Gemini'),
+                icon: Icon(Icons.auto_awesome_rounded),
+              ),
+            ],
+            selected: {widget.aiMode},
+            onSelectionChanged: (Set<AiMode> selected) {
+              widget.onChangeAiMode(selected.first);
+            },
+          ),
+          const SizedBox(height: 14),
+          _ModeInfoRow(
+            icon: Icons.science_rounded,
+            label: 'Mock AI',
+            description:
+                'No API key required. Returns sample scores for testing the grading workflow.',
+            active: widget.aiMode == AiMode.mock,
+          ),
+          const SizedBox(height: 8),
+          _ModeInfoRow(
+            icon: Icons.hub_rounded,
+            label: 'OpenRouter',
+            description:
+                'Routes through OpenRouter to your chosen model. '
+                'Requires a valid OpenRouter API key (sk-or-v1-...) and model ID. '
+                'Grades based on the loaded assessment rubric. Supports Vietnamese and English.',
+            active: widget.aiMode == AiMode.openRouter,
+          ),
+          const SizedBox(height: 8),
+          _ModeInfoRow(
+            icon: Icons.auto_awesome_rounded,
+            label: 'Gemini',
+            description:
+                'Calls Google Gemini directly. Free tier available with a Google AI Studio key (AIza...). '
+                'Same rubric-based grading. Supports Vietnamese and English submissions.',
+            active: widget.aiMode == AiMode.gemini,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── OpenRouter ─────────────────────────────────────────────────────────────
+
+  Widget _buildOrKeySection() {
     return _SettingsCard(
       title: 'OPENROUTER API KEY',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
-            controller: _apiKeyController,
-            obscureText: _obscure,
+            controller: _orKeyController,
+            obscureText: _orObscure,
             style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
             decoration: InputDecoration(
               hintText: 'sk-or-v1-...',
@@ -144,16 +274,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               suffixIcon: IconButton(
                 icon: Icon(
-                  _obscure ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                  _orObscure ? Icons.visibility_off_rounded : Icons.visibility_rounded,
                   color: AppColors.muted,
                 ),
-                onPressed: () => setState(() => _obscure = !_obscure),
+                onPressed: () => setState(() => _orObscure = !_orObscure),
               ),
             ),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Stored in memory only for this session. Never written to disk or committed to version control.',
+            'Stored in memory only for this session. Never written to disk.',
             style: TextStyle(color: AppColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 20),
@@ -168,10 +298,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                onPressed: _saveApiKey,
+                onPressed: _saveOrKey,
                 icon: const Icon(Icons.save_rounded),
                 label: const Text(
-                  'Save API Key',
+                  'Save Key',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -185,10 +315,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                onPressed: _clearApiKey,
+                onPressed: _clearOrKey,
                 icon: const Icon(Icons.delete_outline_rounded),
                 label: const Text(
-                  'Clear API Key',
+                  'Clear Key',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -199,14 +329,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildModelSection() {
+  Widget _buildOrModelSection() {
     return _SettingsCard(
-      title: 'MODEL ID',
+      title: 'OPENROUTER MODEL',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
-            controller: _modelIdController,
+            controller: _orModelController,
             style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
             decoration: InputDecoration(
               hintText: 'openrouter/free',
@@ -240,24 +370,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _ModelChip(
                 label: 'OpenRouter Free (default)',
                 modelId: 'openrouter/free',
-                onTap: () {
-                  _modelIdController.text = 'openrouter/free';
-                },
+                onTap: () => _orModelController.text = 'openrouter/free',
               ),
               _ModelChip(
                 label: 'Llama 3.1 8B (free)',
                 modelId: 'meta-llama/llama-3.1-8b-instruct:free',
-                onTap: () {
-                  _modelIdController.text =
-                      'meta-llama/llama-3.1-8b-instruct:free';
-                },
+                onTap: () => _orModelController.text =
+                    'meta-llama/llama-3.1-8b-instruct:free',
               ),
               _ModelChip(
                 label: 'GPT-4o Mini (paid)',
                 modelId: 'openai/gpt-4o-mini',
-                onTap: () {
-                  _modelIdController.text = 'openai/gpt-4o-mini';
-                },
+                onTap: () => _orModelController.text = 'openai/gpt-4o-mini',
               ),
             ],
           ),
@@ -271,7 +395,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            onPressed: _saveModelId,
+            onPressed: _saveOrModel,
             icon: const Icon(Icons.save_rounded),
             label: const Text(
               'Save Model',
@@ -283,58 +407,183 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildAiModeSection() {
+  // ── Gemini ─────────────────────────────────────────────────────────────────
+
+  Widget _buildGeminiSection() {
     return _SettingsCard(
-      title: 'AI MODE',
+      title: 'GEMINI (GOOGLE AI)',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SegmentedButton<AiMode>(
-            style: SegmentedButton.styleFrom(
-              backgroundColor: AppColors.surfaceHigh,
-              foregroundColor: AppColors.muted,
-              selectedForegroundColor: AppColors.text,
-              selectedBackgroundColor: AppColors.primaryContainer,
-              side: const BorderSide(color: AppColors.outlineVariant),
+          // Key field
+          const Text(
+            'API KEY',
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
             ),
-            segments: const [
-              ButtonSegment(
-                value: AiMode.mock,
-                label: Text('Mock AI'),
-                icon: Icon(Icons.science_rounded),
-              ),
-              ButtonSegment(
-                value: AiMode.openRouter,
-                label: Text('OpenRouter AI'),
-                icon: Icon(Icons.hub_rounded),
-              ),
-            ],
-            selected: {widget.aiMode},
-            onSelectionChanged: (Set<AiMode> selected) {
-              widget.onChangeAiMode(selected.first);
-            },
-          ),
-          const SizedBox(height: 14),
-          _ModeInfoRow(
-            icon: Icons.science_rounded,
-            label: 'Mock AI',
-            description:
-                'No API key required. Returns sample scores for testing the grading workflow.',
-            active: widget.aiMode == AiMode.mock,
           ),
           const SizedBox(height: 8),
-          _ModeInfoRow(
-            icon: Icons.hub_rounded,
-            label: 'OpenRouter AI',
-            description:
-                'Routes through OpenRouter to your chosen model. Requires a valid API key and model ID. '
-                'Grades based on the loaded assessment rubric. Supports Vietnamese and English submissions.',
-            active: widget.aiMode == AiMode.openRouter,
+          TextField(
+            controller: _geminiKeyController,
+            obscureText: _geminiObscure,
+            style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
+            decoration: InputDecoration(
+              hintText: 'AIza...',
+              hintStyle: const TextStyle(color: AppColors.muted),
+              filled: true,
+              fillColor: AppColors.surfaceHigh,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _geminiObscure
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                  color: AppColors.muted,
+                ),
+                onPressed: () =>
+                    setState(() => _geminiObscure = !_geminiObscure),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Get a free key at aistudio.google.com. Stored in memory only.',
+            style: TextStyle(color: AppColors.muted, fontSize: 12),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryContainer,
+                  foregroundColor: AppColors.text,
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: _saveGeminiKey,
+                icon: const Icon(Icons.save_rounded),
+                label: const Text(
+                  'Save Key',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.error,
+                  side: BorderSide(color: AppColors.error.withAlpha(160)),
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: _clearGeminiKey,
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text(
+                  'Clear Key',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          // Model field
+          const Text(
+            'MODEL',
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _geminiModelController,
+            style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
+            decoration: InputDecoration(
+              hintText: 'gemini-2.0-flash-lite',
+              hintStyle: const TextStyle(color: AppColors.muted),
+              filled: true,
+              fillColor: AppColors.surfaceHigh,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _ModelChip(
+                label: 'Flash Lite (free, fast)',
+                modelId: 'gemini-2.0-flash-lite',
+                onTap: () =>
+                    _geminiModelController.text = 'gemini-2.0-flash-lite',
+              ),
+              _ModelChip(
+                label: 'Flash 2.0 (free)',
+                modelId: 'gemini-2.0-flash',
+                onTap: () =>
+                    _geminiModelController.text = 'gemini-2.0-flash',
+              ),
+              _ModelChip(
+                label: 'Flash 1.5 (free)',
+                modelId: 'gemini-1.5-flash',
+                onTap: () =>
+                    _geminiModelController.text = 'gemini-1.5-flash',
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primaryContainer,
+              foregroundColor: AppColors.text,
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: _saveGeminiModel,
+            icon: const Icon(Icons.save_rounded),
+            label: const Text(
+              'Save Model',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
           ),
         ],
       ),
     );
   }
+
+  // ── Security notes ─────────────────────────────────────────────────────────
 
   Widget _buildSecuritySection() {
     return _SettingsCard(
@@ -344,25 +593,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _InfoRow(
             icon: Icons.lock_rounded,
-            text: 'API key and model ID are held in memory only — never written to disk.',
-          ),
-          const SizedBox(height: 8),
-          _InfoRow(
-            icon: Icons.code_off_rounded,
-            text: 'API key is never committed to version control.',
+            text: 'All API keys are held in memory only — never written to disk or committed to version control.',
           ),
           const SizedBox(height: 8),
           _InfoRow(
             icon: Icons.shield_rounded,
             text:
-                'Student submissions are sent only to OpenRouter (openrouter.ai) '
-                'when OpenRouter AI mode is active.',
+                'Student submissions are sent to OpenRouter (openrouter.ai) when OpenRouter mode is active, '
+                'or to Google Gemini API (generativelanguage.googleapis.com) when Gemini mode is active.',
+          ),
+          const SizedBox(height: 8),
+          _InfoRow(
+            icon: Icons.auto_awesome_rounded,
+            text:
+                'Gemini free tier: up to 15 requests/minute, 1500 requests/day with gemini-2.0-flash-lite.',
           ),
         ],
       ),
     );
   }
 }
+
+// ── Shared widgets ─────────────────────────────────────────────────────────────
 
 class _ModelChip extends StatelessWidget {
   const _ModelChip({

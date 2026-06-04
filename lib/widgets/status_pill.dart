@@ -11,11 +11,7 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
-        borderRadius: BorderRadius.circular(8),
-      ),
+      decoration: const BoxDecoration(),
       child: Text(
         text.toUpperCase(),
         style: TextStyle(

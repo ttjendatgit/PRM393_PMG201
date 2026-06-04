@@ -1,1 +1,1 @@
-enum AiMode { mock, openRouter }
+enum AiMode { mock, openRouter, gemini }

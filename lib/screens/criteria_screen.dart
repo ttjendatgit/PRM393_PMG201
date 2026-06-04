@@ -26,11 +26,11 @@ class CriteriaPage extends StatelessWidget {
                 : 'Criteria Matrix',
             subtitle: a != null
                 ? 'Rubric for ${a.assessmentTitle}. '
-                    '${a.totalRawScore.toInt()} raw marks → /${a.totalConvertedScore.toInt()} converted. '
-                    '${a.questions.length} question(s).'
+                    '${a.totalRawScore.toInt()} raw marks → /${a.totalConvertedScore % 1 == 0 ? a.totalConvertedScore.toInt() : a.totalConvertedScore} converted. '
+                    '${a.questions.isEmpty ? 'Text-only (no structured rubric).' : '${a.questions.length} question(s).'}'
                 : 'No assessment loaded. Go to Assessment Setup to load or create one.',
             badge: a != null
-                ? 'Total ${a.totalRawScore.toInt()} raw → /${a.totalConvertedScore.toInt()}'
+                ? 'Total ${a.totalRawScore.toInt()} raw → /${a.totalConvertedScore % 1 == 0 ? a.totalConvertedScore.toInt() : a.totalConvertedScore}'
                 : 'No Assessment',
             button: 'Assessment Setup',
           ),
@@ -93,10 +93,12 @@ class CriteriaPage extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'No parsed rubric items available.\n'
-              'Load the PMG201c PE2 sample or add a structured rubric to see criteria cards.',
+              'No structured rubric items were detected in the grading guide.\n'
+              'Try importing a grading guide .txt with lines like:\n'
+              '  Q1 - Project Charter: 20 marks\n'
+              '  Q2 - Risk Register: 30 marks',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, height: 1.5),
+              style: TextStyle(color: AppColors.muted, height: 1.6),
             ),
           ],
         ),
@@ -107,7 +109,7 @@ class CriteriaPage extends StatelessWidget {
       itemCount: a.questions.length,
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 390,
-        mainAxisExtent: 300,
+        mainAxisExtent: 320,
         crossAxisSpacing: 20,
         mainAxisSpacing: 20,
       ),
@@ -173,6 +175,8 @@ class _RubricCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           question.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: AppColors.text,
                             fontSize: 18,
@@ -197,7 +201,7 @@ class _RubricCard extends StatelessWidget {
                       ),
                       _ScoreBadge(
                         label: 'Conv',
-                        value: '/${question.convertedMaxScore.toInt()}',
+                        value: '/${question.convertedMaxScore % 1 == 0 ? question.convertedMaxScore.toInt() : question.convertedMaxScore.toStringAsFixed(2)}',
                       ),
                       if (question.subCriteria.isNotEmpty)
                         _ScoreBadge(
@@ -207,14 +211,16 @@ class _RubricCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    question.description,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      height: 1.45,
-                      fontSize: 13,
+                  Flexible(
+                    child: Text(
+                      question.description,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        height: 1.45,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                   const Spacer(),
