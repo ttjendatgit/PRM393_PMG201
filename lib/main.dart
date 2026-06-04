@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'models/ai_mode.dart';
 import 'models/assessment.dart';
 import 'models/grading_result.dart';
+import 'models/grading_status.dart';
 import 'models/submission.dart';
 import 'screens/assessment_setup_screen.dart';
 import 'screens/criteria_screen.dart';
@@ -55,6 +56,7 @@ class _AppShellState extends State<AppShell> {
 
   List<Submission> submissions = [];
   List<GradingResult> results = [];
+  Map<String, GradingStatus> _statuses = {};
 
   Assessment? currentAssessment;
 
@@ -87,6 +89,7 @@ class _AppShellState extends State<AppShell> {
         copy[idx] = updated;
         results = copy;
       }
+      _statuses = {..._statuses, updated.fileName: GradingStatus.reviewed};
       message = 'Reviewed scores saved.';
     });
   }
@@ -133,6 +136,7 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       submissions = picked;
       results = [];
+      _statuses = {for (final s in picked) s.fileName: GradingStatus.pending};
       selectedSubmissionIndex = picked.isNotEmpty ? 0 : null;
       message = 'Imported ${picked.length} .txt file(s).';
     });
@@ -193,6 +197,7 @@ class _AppShellState extends State<AppShell> {
         temp.add(result);
         setState(() {
           results = List.from(temp);
+          _statuses = {..._statuses, result.fileName: GradingStatus.graded};
           message =
               'Graded ${results.length}/${submissions.length} file(s)...';
         });
@@ -206,6 +211,7 @@ class _AppShellState extends State<AppShell> {
         if (display.length > 160) display = '${display.substring(0, 160)}…';
         setState(() {
           isGrading = false;
+          _statuses = {..._statuses, submission.fileName: GradingStatus.error};
           message = 'Error: $display';
         });
         return;
@@ -520,7 +526,14 @@ class _AppShellState extends State<AppShell> {
       ..createSync(recursive: true)
       ..writeAsBytesSync(bytes);
 
-    setState(() => message = 'Excel exported: ${file.path}');
+    final exportedStatuses = Map<String, GradingStatus>.from(_statuses);
+    for (final r in results) {
+      exportedStatuses[r.fileName] = GradingStatus.exported;
+    }
+    setState(() {
+      _statuses = exportedStatuses;
+      message = 'Excel exported: ${file.path}';
+    });
   }
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -553,6 +566,7 @@ class _AppShellState extends State<AppShell> {
       HomePage(
         submissions: submissions,
         results: results,
+        statuses: _statuses,
         message: message,
         isGrading: isGrading,
         aiMode: _aiMode,
@@ -580,6 +594,7 @@ class _AppShellState extends State<AppShell> {
         onSaveReview: _saveReview,
         aiMode: _aiMode,
         assessment: currentAssessment,
+        status: _statuses[selectedSubmission?.fileName],
       ),
       // 4 — Export
       ExportPage(

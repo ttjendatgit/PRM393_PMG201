@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/ai_mode.dart';
 import '../models/grading_result.dart';
+import '../models/grading_status.dart';
 import '../models/submission.dart';
 import '../theme/app_colors.dart';
 import '../widgets/empty_card.dart';
@@ -13,6 +14,7 @@ class HomePage extends StatelessWidget {
     super.key,
     required this.submissions,
     required this.results,
+    required this.statuses,
     required this.message,
     required this.isGrading,
     required this.aiMode,
@@ -23,6 +25,7 @@ class HomePage extends StatelessWidget {
 
   final List<Submission> submissions;
   final List<GradingResult> results;
+  final Map<String, GradingStatus> statuses;
   final String message;
   final bool isGrading;
   final AiMode aiMode;
@@ -58,6 +61,7 @@ class HomePage extends StatelessWidget {
                   child: _SubmissionsPanel(
                     submissions: submissions,
                     results: results,
+                    statuses: statuses,
                     onTap: onSelectSubmission,
                   ),
                 ),
@@ -84,19 +88,31 @@ class _SubmissionsPanel extends StatelessWidget {
   const _SubmissionsPanel({
     required this.submissions,
     required this.results,
+    required this.statuses,
     required this.onTap,
   });
 
   final List<Submission> submissions;
   final List<GradingResult> results;
+  final Map<String, GradingStatus> statuses;
   final ValueChanged<int> onTap;
+
+  GradingResult? _findResult(String fileName) {
+    for (final r in results) {
+      if (r.fileName == fileName) return r;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader(title: 'Imported Submissions', action: 'View All'),
+        _SectionHeader(
+          title: 'Imported Submissions',
+          action: submissions.isEmpty ? '' : '${submissions.length} files',
+        ),
         const SizedBox(height: 14),
         if (submissions.isEmpty)
           const EmptyCard(
@@ -108,7 +124,8 @@ class _SubmissionsPanel extends StatelessWidget {
               itemCount: submissions.length,
               itemBuilder: (context, index) {
                 final item = submissions[index];
-                final graded = results.any((r) => r.fileName == item.fileName);
+                final status = statuses[item.fileName] ?? GradingStatus.pending;
+                final result = _findResult(item.fileName);
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14),
@@ -136,22 +153,39 @@ class _SubmissionsPanel extends StatelessWidget {
                                   ),
                                 ),
                               ),
+                              const SizedBox(width: 8),
                               StatusPill(
-                                text: graded ? 'Graded' : 'Not Graded',
-                                color: graded
-                                    ? AppColors.primary
-                                    : AppColors.muted,
+                                text: status.label,
+                                color: status.color,
                               ),
                             ],
                           ),
-                          const SizedBox(height: 10),
-                          Text(
-                            '${item.sizeInBytes} bytes',
-                            style: const TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 12,
+                          const SizedBox(height: 8),
+                          if (result != null) ...[
+                            Row(
+                              children: [
+                                _InfoChip(
+                                  icon: Icons.badge_outlined,
+                                  label: result.studentId,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _InfoChip(
+                                    icon: Icons.person_outline_rounded,
+                                    label: result.studentName,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
+                          ] else ...[
+                            Text(
+                              '${item.sizeInBytes} bytes',
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -160,6 +194,31 @@ class _SubmissionsPanel extends StatelessWidget {
               },
             ),
           ),
+      ],
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: AppColors.muted),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.muted, fontSize: 12),
+          ),
+        ),
       ],
     );
   }
@@ -198,101 +257,103 @@ class _UploadZone extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-          Container(
-            height: 86,
-            width: 86,
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(50),
-              border: Border.all(color: AppColors.outlineVariant),
-            ),
-            child: const Icon(
-              Icons.cloud_upload_rounded,
-              color: AppColors.primary,
-              size: 42,
-            ),
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Upload Student Submissions',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.text,
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 10),
-          const SizedBox(
-            width: 520,
-            child: Text(
-              'Select plain text (.txt) submission files. Load an assessment rubric in Assessment Setup, then grade with Mock AI or OpenRouter AI.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.muted, height: 1.5),
-            ),
-          ),
-          const SizedBox(height: 28),
-          Wrap(
-            spacing: 14,
-            runSpacing: 12,
-            children: [
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: const Color(0xFF00297A),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 22,
-                    vertical: 16,
+                  Container(
+                    height: 86,
+                    width: 86,
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(50),
+                      border: Border.all(color: AppColors.outlineVariant),
+                    ),
+                    child: const Icon(
+                      Icons.cloud_upload_rounded,
+                      color: AppColors.primary,
+                      size: 42,
+                    ),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Upload Student Submissions',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                ),
-                onPressed: onPickFiles,
-                icon: const Icon(Icons.folder_open_rounded),
-                label: const Text(
-                  'Select .txt Files',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.text,
-                  side: const BorderSide(color: AppColors.outline),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 22,
-                    vertical: 16,
+                  const SizedBox(height: 10),
+                  const SizedBox(
+                    width: 520,
+                    child: Text(
+                      'Select plain text (.txt) submission files. Load an assessment rubric in Assessment Setup, then grade with Mock AI or OpenRouter AI.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.muted, height: 1.5),
+                    ),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                  const SizedBox(height: 28),
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 12,
+                    children: [
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: const Color(0xFF00297A),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 22,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: onPickFiles,
+                        icon: const Icon(Icons.folder_open_rounded),
+                        label: const Text(
+                          'Select .txt Files',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.text,
+                          side: const BorderSide(color: AppColors.outline),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 22,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: isGrading ? null : onGradeAll,
+                        icon: Icon(
+                          isOpenRouter
+                              ? Icons.hub_rounded
+                              : Icons.auto_awesome_rounded,
+                        ),
+                        label: Text(
+                          isGrading
+                              ? 'Grading...'
+                              : isOpenRouter
+                                  ? 'Grade with OpenRouter AI'
+                                  : 'Grade with AI',
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                onPressed: isGrading ? null : onGradeAll,
-                icon: Icon(
-                  isOpenRouter ? Icons.hub_rounded : Icons.auto_awesome_rounded,
-                ),
-                label: Text(
-                  isGrading
-                      ? 'Grading...'
-                      : isOpenRouter
-                          ? 'Grade with OpenRouter AI'
-                          : 'Grade with AI',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-          Text(
-            isOpenRouter
-                ? 'SUPPORTED FORMAT: .TXT  |  OPENROUTER AI'
-                : 'SUPPORTED FORMAT: .TXT  |  MOCK AI MODE',
-            style: const TextStyle(
-              color: AppColors.muted,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.2,
-            ),
-          ),
+                  const SizedBox(height: 28),
+                  Text(
+                    isOpenRouter
+                        ? 'SUPPORTED FORMAT: .TXT  |  OPENROUTER AI'
+                        : 'SUPPORTED FORMAT: .TXT  |  MOCK AI MODE',
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -322,13 +383,14 @@ class _SectionHeader extends StatelessWidget {
           ),
         ),
         const Spacer(),
-        Text(
-          action,
-          style: const TextStyle(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w700,
+        if (action.isNotEmpty)
+          Text(
+            action,
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
       ],
     );
   }

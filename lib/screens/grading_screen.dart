@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/ai_mode.dart';
 import '../models/assessment.dart';
 import '../models/grading_result.dart';
+import '../models/grading_status.dart';
 import '../models/question_result.dart';
 import '../models/submission.dart';
 import '../theme/app_colors.dart';
@@ -62,6 +63,7 @@ class GradingPage extends StatelessWidget {
     required this.onSaveReview,
     required this.aiMode,
     required this.assessment,
+    this.status,
   });
 
   final Submission? submission;
@@ -70,6 +72,7 @@ class GradingPage extends StatelessWidget {
   final ValueChanged<GradingResult> onSaveReview;
   final AiMode aiMode;
   final Assessment? assessment;
+  final GradingStatus? status;
 
   @override
   Widget build(BuildContext context) {
@@ -168,6 +171,7 @@ class GradingPage extends StatelessWidget {
           onSaveReview: onSaveReview,
           aiMode: aiMode,
           assessment: assessment,
+          status: status,
         ),
       ],
     );
@@ -186,6 +190,7 @@ class AiPanel extends StatefulWidget {
     required this.onSaveReview,
     required this.aiMode,
     required this.assessment,
+    this.status,
   });
 
   final GradingResult? result;
@@ -193,6 +198,7 @@ class AiPanel extends StatefulWidget {
   final ValueChanged<GradingResult> onSaveReview;
   final AiMode aiMode;
   final Assessment? assessment;
+  final GradingStatus? status;
 
   @override
   State<AiPanel> createState() => _AiPanelState();
@@ -354,6 +360,10 @@ class _AiPanelState extends State<AiPanel> {
   }
 
   Widget _buildPanelHeader() {
+    // Resolve displayed status: prefer explicit status; fall back to result presence
+    final s = widget.status ??
+        (widget.result == null ? GradingStatus.pending : GradingStatus.graded);
+
     return Container(
       height: 58,
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -378,10 +388,7 @@ class _AiPanelState extends State<AiPanel> {
             ),
           ),
           const Spacer(),
-          StatusPill(
-            text: widget.result == null ? 'Pending' : 'Complete',
-            color: widget.result == null ? AppColors.muted : AppColors.primary,
-          ),
+          StatusPill(text: s.label, color: s.color),
         ],
       ),
     );
