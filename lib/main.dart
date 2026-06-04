@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'models/assessment.dart';
 import 'models/grading_result.dart';
 import 'models/submission.dart';
+import 'screens/assessment_setup_screen.dart';
 import 'screens/criteria_screen.dart';
 import 'screens/export_screen.dart';
 import 'screens/grading_screen.dart';
@@ -28,7 +30,7 @@ class PMGGradeAIApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PMG201c GradeAI',
+      title: 'PMG GradeAI',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       home: const AppShell(),
@@ -44,14 +46,27 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
+  // Nav indices:
+  // 0 = Home, 1 = Assessment, 2 = Criteria, 3 = Grading, 4 = Export, 5 = Settings
+
   int selectedIndex = 0;
   int? selectedSubmissionIndex;
 
   List<Submission> submissions = [];
   List<GradingResult> results = [];
 
+  Assessment? currentAssessment;
+
   bool isGrading = false;
   String message = 'Ready. Import .txt files to begin Phase 1.';
+
+  void _applyAssessment(Assessment assessment) {
+    setState(() {
+      currentAssessment = assessment;
+      results = [];
+      message = 'Assessment loaded: ${assessment.courseCode} — ${assessment.assessmentTitle}';
+    });
+  }
 
   Future<void> pickTxtFiles() async {
     final result = await fp.FilePicker.pickFiles(
@@ -119,27 +134,77 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       isGrading = false;
       message = 'Completed mock grading. Next phase: connect real AI API.';
-      selectedIndex = 2;
+      selectedIndex = 3; // Grading screen
     });
   }
 
   GradingResult _mockGrade(Submission submission) {
     final nameInfo = _extractStudentInfo(submission.fileName);
 
+    final criteriaScores = _buildMockCriteriaScores();
+    final finalScore = criteriaScores.values.fold(0.0, (a, b) => a + b);
+    final feedback = _buildMockFeedback();
+
     return GradingResult(
       fileName: submission.fileName,
       studentId: nameInfo.$1,
       studentName: nameInfo.$2,
-      finalScore: 8.5,
-      criteriaScores: const {
-        'Project Charter': 1.4,
-        'Cost / Budget': 1.8,
-        'Risk Register': 2.4,
-        'RACI Matrix': 2.9,
-      },
-      feedback:
-          'The submission shows a solid understanding of PMG201c project planning. The RACI matrix and risk register are clear. To improve, the student should explain budget assumptions and cost breakdowns in more detail.',
+      finalScore: finalScore,
+      criteriaScores: criteriaScores,
+      feedback: feedback,
     );
+  }
+
+  Map<String, double> _buildMockCriteriaScores() {
+    final a = currentAssessment;
+
+    // PMG201c PE2 sample: use specific realistic mock scores
+    if (a != null &&
+        a.questions.isNotEmpty &&
+        a.assessmentId == 'pmg201c-pe2-sample') {
+      return {
+        a.questions[0].title: 1.4, // Project Charter Statement
+        a.questions[1].title: 1.8, // Cost / Budget Plan
+        a.questions[2].title: 2.4, // Risk Register
+        a.questions[3].title: 2.9, // RACI Matrix
+      };
+    }
+
+    // Generic assessment with parsed questions: 75% of convertedMaxScore
+    if (a != null && a.questions.isNotEmpty) {
+      return {
+        for (final q in a.questions)
+          q.title: double.parse((q.convertedMaxScore * 0.75).toStringAsFixed(1))
+      };
+    }
+
+    // No assessment loaded: fall back to default PMG201c mock scores
+    return const {
+      'Project Charter': 1.4,
+      'Cost / Budget': 1.8,
+      'Risk Register': 2.4,
+      'RACI Matrix': 2.9,
+    };
+  }
+
+  String _buildMockFeedback() {
+    final a = currentAssessment;
+
+    if (a != null && a.assessmentId == 'pmg201c-pe2-sample') {
+      return 'The submission shows a solid understanding of PMG201c project planning. '
+          'The RACI matrix and risk register are clear. '
+          'To improve, the student should explain budget assumptions and cost breakdowns in more detail.';
+    }
+
+    if (a != null) {
+      return 'Mock AI assessment for ${a.courseCode} — ${a.assessmentTitle}. '
+          'The submission demonstrates adequate understanding of the required topics. '
+          'Connect the real AI API in a future phase for detailed feedback.';
+    }
+
+    return 'The submission shows a solid understanding of project planning. '
+        'The RACI matrix and risk register are clear. '
+        'To improve, the student should explain budget assumptions in more detail.';
   }
 
   (String, String) _extractStudentInfo(String fileName) {
@@ -243,6 +308,7 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
+      // 0 — Home
       HomePage(
         submissions: submissions,
         results: results,
@@ -253,26 +319,36 @@ class _AppShellState extends State<AppShell> {
         onSelectSubmission: (index) {
           setState(() {
             selectedSubmissionIndex = index;
-            selectedIndex = 2;
+            selectedIndex = 3; // Grading screen
           });
         },
       ),
-      const CriteriaPage(),
+      // 1 — Assessment Setup
+      AssessmentSetupScreen(
+        currentAssessment: currentAssessment,
+        onApplyAssessment: _applyAssessment,
+      ),
+      // 2 — Criteria
+      CriteriaPage(assessment: currentAssessment),
+      // 3 — Grading
       GradingPage(
         submission: selectedSubmission,
         result: selectedResult,
         onGradeAll: mockGradeAll,
       ),
+      // 4 — Export
       ExportPage(
         results: results,
         onExportExcel: exportExcel,
       ),
+      // 5 — Settings
       const SettingsScreen(),
     ];
 
     final titles = [
       'Workspace',
-      'PMG201c Criteria Matrix',
+      'Assessment Setup',
+      'Criteria Matrix',
       'AI Grading Detail',
       'Export Data',
       'Settings',

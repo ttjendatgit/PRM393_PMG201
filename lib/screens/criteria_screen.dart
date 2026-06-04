@@ -1,123 +1,288 @@
 import 'package:flutter/material.dart';
+import '../models/assessment.dart';
+import '../models/rubric.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_frame.dart';
 import '../widgets/page_title.dart';
 import '../widgets/status_pill.dart';
 import '../widgets/tiny_tag.dart';
 
-class _Criteria {
-  final String title;
-  final int weight;
-  final IconData icon;
-  const _Criteria(this.title, this.weight, this.icon);
-}
-
 class CriteriaPage extends StatelessWidget {
-  const CriteriaPage({super.key});
+  const CriteriaPage({super.key, required this.assessment});
+
+  final Assessment? assessment;
 
   @override
   Widget build(BuildContext context) {
-    final criteria = [
-      _Criteria('Project Charter', 20, Icons.assignment_rounded),
-      _Criteria('Cost / Budget Plan', 20, Icons.payments_rounded),
-      _Criteria('Risk Register', 30, Icons.warning_amber_rounded),
-      _Criteria('RACI Matrix', 30, Icons.group_rounded),
-    ];
+    final a = assessment;
 
     return PageFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const PageHeaderWithAction(
-            title: 'PMG201c Criteria Matrix',
-            subtitle:
-                'Weighted evaluation dimensions for PMG201c Practical Exam 2. Total raw score 100 → converted to /10.',
-            badge: 'Total Weight 100%',
-            button: 'Add Criteria',
+          PageHeaderWithAction(
+            title: a != null
+                ? '${a.courseCode} — ${a.assessmentTitle}'
+                : 'Criteria Matrix',
+            subtitle: a != null
+                ? 'Rubric for ${a.assessmentTitle}. '
+                    '${a.totalRawScore.toInt()} raw marks → /${a.totalConvertedScore.toInt()} converted. '
+                    '${a.questions.length} question(s).'
+                : 'No assessment loaded. Go to Assessment Setup to load or create one.',
+            badge: a != null
+                ? 'Total ${a.totalRawScore.toInt()} raw → /${a.totalConvertedScore.toInt()}'
+                : 'No Assessment',
+            button: 'Assessment Setup',
           ),
           const SizedBox(height: 26),
-          Expanded(
-            child: GridView.builder(
-              itemCount: criteria.length,
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 390,
-                mainAxisExtent: 280,
-                crossAxisSpacing: 20,
-                mainAxisSpacing: 20,
-              ),
-              itemBuilder: (context, index) {
-                final item = criteria[index];
+          Expanded(child: a == null ? _buildEmpty() : _buildGrid(a)),
+        ],
+      ),
+    );
+  }
 
-                return Container(
-                  clipBehavior: Clip.antiAlias,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceContainer,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppColors.outlineVariant),
-                  ),
-                  child: Column(
+  Widget _buildEmpty() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.rule_folder_rounded,
+            size: 64,
+            color: AppColors.muted.withAlpha(120),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'No assessment rubric loaded.',
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Please create or load an assessment first.\nGo to Assessment Setup in the left navigation.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.muted, height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrid(Assessment a) {
+    if (a.questions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.list_alt_rounded,
+              size: 64,
+              color: AppColors.muted.withAlpha(120),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Assessment loaded (text only).',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'No parsed rubric items available.\n'
+              'Load the PMG201c PE2 sample or add a structured rubric to see criteria cards.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.muted, height: 1.5),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return GridView.builder(
+      itemCount: a.questions.length,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 390,
+        mainAxisExtent: 300,
+        crossAxisSpacing: 20,
+        mainAxisSpacing: 20,
+      ),
+      itemBuilder: (context, index) {
+        final q = a.questions[index];
+        final weightFraction = q.rawMaxScore / a.totalRawScore;
+        final weightPct = (weightFraction * 100).round();
+
+        return _RubricCard(
+          question: q,
+          weightFraction: weightFraction,
+          weightPct: weightPct,
+          courseCode: a.courseCode,
+        );
+      },
+    );
+  }
+}
+
+class _RubricCard extends StatelessWidget {
+  const _RubricCard({
+    required this.question,
+    required this.weightFraction,
+    required this.weightPct,
+    required this.courseCode,
+  });
+
+  final QuestionRubric question;
+  final double weightFraction;
+  final int weightPct;
+  final String courseCode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          LinearProgressIndicator(
+            minHeight: 4,
+            value: weightFraction,
+            backgroundColor: AppColors.surfaceHighest,
+            color: AppColors.primary,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      LinearProgressIndicator(
-                        minHeight: 4,
-                        value: item.weight / 100,
-                        backgroundColor: AppColors.surfaceHighest,
+                      Icon(
+                        _iconForQuestion(question.questionId),
                         color: AppColors.primary,
                       ),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(22),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(item.icon, color: AppColors.primary),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      item.title,
-                                      style: const TextStyle(
-                                        color: AppColors.text,
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  ),
-                                  StatusPill(
-                                    text: '${item.weight}%',
-                                    color: AppColors.primary,
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 18),
-                              const Text(
-                                'PMG201c rubric dimension. The AI will compare the student submission against this criterion and suggest score breakdown.',
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: AppColors.muted,
-                                  height: 1.45,
-                                ),
-                              ),
-                              const Spacer(),
-                              const Row(
-                                children: [
-                                  TinyTag(text: 'Core'),
-                                  SizedBox(width: 8),
-                                  TinyTag(text: 'PMG201c'),
-                                ],
-                              ),
-                            ],
+                        child: Text(
+                          question.title,
+                          style: const TextStyle(
+                            color: AppColors.text,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
+                      StatusPill(
+                        text: '$weightPct%',
+                        color: AppColors.primary,
+                      ),
                     ],
                   ),
-                );
-              },
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _ScoreBadge(
+                        label: 'Raw',
+                        value: '${question.rawMaxScore.toInt()} pts',
+                      ),
+                      const SizedBox(width: 8),
+                      _ScoreBadge(
+                        label: 'Converted',
+                        value: '/${question.convertedMaxScore.toInt()}',
+                      ),
+                      if (question.subCriteria.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        _ScoreBadge(
+                          label: 'Sub',
+                          value: '${question.subCriteria.length} criteria',
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    question.description,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      height: 1.45,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      TinyTag(text: question.questionId.toUpperCase()),
+                      const SizedBox(width: 8),
+                      TinyTag(text: courseCode),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  IconData _iconForQuestion(String qId) {
+    switch (qId) {
+      case 'q1':
+        return Icons.assignment_rounded;
+      case 'q2':
+        return Icons.payments_rounded;
+      case 'q3':
+        return Icons.warning_amber_rounded;
+      case 'q4':
+        return Icons.group_rounded;
+      default:
+        return Icons.quiz_rounded;
+    }
+  }
+}
+
+class _ScoreBadge extends StatelessWidget {
+  const _ScoreBadge({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.outlineVariant),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 11),
+          children: [
+            TextSpan(
+              text: '$label  ',
+              style: const TextStyle(color: AppColors.muted),
+            ),
+            TextSpan(
+              text: value,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

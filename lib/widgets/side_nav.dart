@@ -67,6 +67,7 @@ class SideNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = [
       _NavItem(Icons.home_rounded, 'Home'),
+      _NavItem(Icons.quiz_rounded, 'Assessment'),
       _NavItem(Icons.rule_rounded, 'Criteria'),
       _NavItem(Icons.grading_rounded, 'Grading'),
       _NavItem(Icons.ios_share_rounded, 'Export'),
