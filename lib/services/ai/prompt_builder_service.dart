@@ -45,8 +45,9 @@ GRADING INSTRUCTIONS
 3. Do not penalise for language (Vietnamese or English) unless the rubric explicitly requires English.
 4. Extract student_id and student_name from the file name if possible. Expected format: STUDENTID_FirstName_LastName.txt (e.g. SE001_Nguyen_Van_A.txt). If not parseable, use "N/A" for student_id and the raw filename for student_name.
 5. Return your response as a single JSON object ONLY. No markdown fences. No explanation outside the JSON.
-6. For each question, assign raw_score (integer, within 0..max_raw_score) based on the rubric sub-criteria. Then compute: converted_score = raw_score / max_raw_score * max_converted_score (round to 2 decimal places). Do NOT independently guess or estimate the converted_score.
-7. Set total_raw_score = sum of all question raw_score values. Set total_converted_score = sum of all question converted_score values (round to 2 decimal places).
+6. Grade EXACTLY the questions listed in RUBRIC STRUCTURE — return one question_result per assessment question, in the same order. Do NOT invent new questions, split sub-criteria into separate question entries, or merge questions. Sub-criteria details in the grading guide are context only; they do not define the question count or scoring scale.
+7. For each question result: provide raw_score (integer, 0..max_raw_score from RUBRIC STRUCTURE) and a comment. Copy max_raw_score and max_converted_score exactly from RUBRIC STRUCTURE without modification — the app enforces these values and will override anything different. Do NOT invent or reduce denominators.
+8. Set total_raw_score = sum of all raw_score values. Set total_converted_score = sum of all converted_score values (round to 2 decimal places).
 ${_inferInstructions(assessment)}
 EXPECTED OUTPUT FORMAT:
 {

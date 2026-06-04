@@ -150,47 +150,100 @@ class OpenRouterGradingService {
       throw Exception('Model returned invalid JSON.\nPreview: $preview');
     }
 
-    final questionResultsRaw = data['question_results'] as List<dynamic>? ?? [];
-    final parsedQuestions = questionResultsRaw.map((raw) {
-      final q = raw as Map<String, dynamic>;
-      final subscoresRaw = q['subscores'] as List<dynamic>? ?? [];
-      final maxRaw = _toDouble(q['max_raw_score']);
-      // Clamp raw score to [0, maxRawScore]
-      final rawScore = maxRaw > 0
-          ? _toDouble(q['raw_score']).clamp(0.0, maxRaw).toDouble()
-          : _toDouble(q['raw_score']).clamp(0.0, double.maxFinite).toDouble();
-      // Always derive convertedMax proportionally from assessment scale.
-      // Never trust the AI's max_converted_score — it frequently copies rawMax
-      // or uses an inconsistent scale, producing impossible values like 99/10.
-      final maxConv = assessment.totalRawScore > 0 && maxRaw > 0
-          ? double.parse(
-              (maxRaw / assessment.totalRawScore * assessment.totalConvertedScore)
-                  .toStringAsFixed(2))
-          : 0.0;
-      final convertedScore = maxRaw > 0
-          ? double.parse((rawScore / maxRaw * maxConv).toStringAsFixed(2))
-          : 0.0;
+    final aiResultsRaw = data['question_results'] as List<dynamic>? ?? [];
+    final List<QuestionResult> parsedQuestions;
 
-      return QuestionResult(
-        questionId: (q['question_id'] as String?) ?? '',
-        questionTitle: (q['question_title'] as String?) ?? '',
-        rawScore: rawScore,
-        convertedScore: convertedScore,
-        maxRawScore: maxRaw,
-        maxConvertedScore: maxConv,
-        comment: (q['comment'] as String?) ?? '',
-        subscores: subscoresRaw.map((s) {
-          final sub = s as Map<String, dynamic>;
-          return SubScoreResult(
-            criterionCode: (sub['criterion_code'] as String?) ?? '',
-            criterionTitle: (sub['criterion_title'] as String?) ?? '',
-            maxScore: _toDouble(sub['max_score']),
-            score: _toDouble(sub['score']),
-            reason: (sub['reason'] as String?) ?? '',
-          );
-        }).toList(),
-      );
-    }).toList();
+    if (assessment.questions.isNotEmpty) {
+      // Assessment is the single source of truth for question count and scoring scale.
+      // Match AI results to assessment questions by question_id (primary) or index (fallback).
+      parsedQuestions = List.generate(assessment.questions.length, (i) {
+        final aq = assessment.questions[i];
+        final maxRaw = aq.rawMaxScore;
+        final maxConv = aq.convertedMaxScore;
+
+        Map<String, dynamic>? aiQ;
+        for (final raw in aiResultsRaw) {
+          final candidate = raw as Map<String, dynamic>;
+          final cId = (candidate['question_id'] as String? ?? '').toLowerCase();
+          if (cId.isNotEmpty && cId == aq.questionId.toLowerCase()) {
+            aiQ = candidate;
+            break;
+          }
+        }
+        if (aiQ == null && i < aiResultsRaw.length) {
+          aiQ = aiResultsRaw[i] as Map<String, dynamic>;
+        }
+
+        final rawScore = (aiQ != null ? _toDouble(aiQ['raw_score']) : 0.0)
+            .clamp(0.0, maxRaw)
+            .toDouble();
+        final convertedScore = maxRaw > 0
+            ? double.parse((rawScore / maxRaw * maxConv).toStringAsFixed(2))
+            : 0.0;
+        final comment = aiQ != null
+            ? ((aiQ['comment'] as String?) ?? '')
+            : 'No score returned by AI for this criterion.';
+        final subscoresRaw = aiQ?['subscores'] as List<dynamic>? ?? [];
+
+        return QuestionResult(
+          questionId: aq.questionId,
+          questionTitle: aq.title,
+          rawScore: rawScore,
+          convertedScore: convertedScore,
+          maxRawScore: maxRaw,
+          maxConvertedScore: maxConv,
+          comment: comment,
+          subscores: subscoresRaw.map((s) {
+            final sub = s as Map<String, dynamic>;
+            return SubScoreResult(
+              criterionCode: (sub['criterion_code'] as String?) ?? '',
+              criterionTitle: (sub['criterion_title'] as String?) ?? '',
+              maxScore: _toDouble(sub['max_score']),
+              score: _toDouble(sub['score']),
+              reason: (sub['reason'] as String?) ?? '',
+            );
+          }).toList(),
+        );
+      });
+    } else {
+      // No structured rubric — fall back to AI-provided structure for dynamic assessments.
+      parsedQuestions = aiResultsRaw.map((raw) {
+        final q = raw as Map<String, dynamic>;
+        final subscoresRaw = q['subscores'] as List<dynamic>? ?? [];
+        final maxRaw = _toDouble(q['max_raw_score']);
+        final rawScore = maxRaw > 0
+            ? _toDouble(q['raw_score']).clamp(0.0, maxRaw).toDouble()
+            : _toDouble(q['raw_score']).clamp(0.0, double.maxFinite).toDouble();
+        final maxConv = assessment.totalRawScore > 0 && maxRaw > 0
+            ? double.parse(
+                (maxRaw / assessment.totalRawScore * assessment.totalConvertedScore)
+                    .toStringAsFixed(2))
+            : 0.0;
+        final convertedScore = maxRaw > 0
+            ? double.parse((rawScore / maxRaw * maxConv).toStringAsFixed(2))
+            : 0.0;
+
+        return QuestionResult(
+          questionId: (q['question_id'] as String?) ?? '',
+          questionTitle: (q['question_title'] as String?) ?? '',
+          rawScore: rawScore,
+          convertedScore: convertedScore,
+          maxRawScore: maxRaw,
+          maxConvertedScore: maxConv,
+          comment: (q['comment'] as String?) ?? '',
+          subscores: subscoresRaw.map((s) {
+            final sub = s as Map<String, dynamic>;
+            return SubScoreResult(
+              criterionCode: (sub['criterion_code'] as String?) ?? '',
+              criterionTitle: (sub['criterion_title'] as String?) ?? '',
+              maxScore: _toDouble(sub['max_score']),
+              score: _toDouble(sub['score']),
+              reason: (sub['reason'] as String?) ?? '',
+            );
+          }).toList(),
+        );
+      }).toList();
+    }
 
     // Recalculate totals from per-question results.
     // Derive finalScore from totalRaw using the assessment scale — this is the

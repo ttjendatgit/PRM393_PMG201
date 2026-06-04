@@ -237,10 +237,29 @@ class _UploadZone extends StatelessWidget {
   final VoidCallback onPickFiles;
   final VoidCallback onGradeAll;
 
+  String get _gradeButtonLabel {
+    if (isGrading) return 'Grading...';
+    return switch (aiMode) {
+      AiMode.mock => 'Grade with Mock AI',
+      AiMode.openRouter => 'Grade with OpenRouter AI',
+      AiMode.gemini => 'Grade with Gemini AI',
+    };
+  }
+
+  IconData get _gradeButtonIcon => switch (aiMode) {
+    AiMode.mock => Icons.science_rounded,
+    AiMode.openRouter => Icons.hub_rounded,
+    AiMode.gemini => Icons.auto_awesome_rounded,
+  };
+
+  String get _providerFooter => switch (aiMode) {
+    AiMode.mock => 'SUPPORTED FORMAT: .TXT  |  MOCK AI MODE',
+    AiMode.openRouter => 'SUPPORTED FORMAT: .TXT  |  OPENROUTER AI',
+    AiMode.gemini => 'SUPPORTED FORMAT: .TXT  |  GEMINI AI',
+  };
+
   @override
   Widget build(BuildContext context) {
-    final isOpenRouter = aiMode == AiMode.openRouter;
-
     return Container(
       constraints: const BoxConstraints(minHeight: 420),
       padding: const EdgeInsets.all(42),
@@ -285,7 +304,7 @@ class _UploadZone extends StatelessWidget {
                   const SizedBox(
                     width: 520,
                     child: Text(
-                      'Select plain text (.txt) submission files. Load an assessment rubric in Assessment Setup, then grade with Mock AI or OpenRouter AI.',
+                      'Select plain text (.txt) submission files. Load an assessment rubric in Assessment Setup, then grade with Mock AI, OpenRouter AI, or Gemini AI.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: AppColors.muted, height: 1.5),
                     ),
@@ -316,8 +335,13 @@ class _UploadZone extends StatelessWidget {
                       ),
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.text,
-                          side: const BorderSide(color: AppColors.outline),
+                          foregroundColor:
+                              isGrading ? AppColors.muted : AppColors.text,
+                          side: BorderSide(
+                            color: isGrading
+                                ? AppColors.outlineVariant
+                                : AppColors.outline,
+                          ),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 22,
                             vertical: 16,
@@ -327,26 +351,26 @@ class _UploadZone extends StatelessWidget {
                           ),
                         ),
                         onPressed: isGrading ? null : onGradeAll,
-                        icon: Icon(
-                          isOpenRouter
-                              ? Icons.hub_rounded
-                              : Icons.auto_awesome_rounded,
-                        ),
+                        icon: isGrading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.muted,
+                                ),
+                              )
+                            : Icon(_gradeButtonIcon),
                         label: Text(
-                          isGrading
-                              ? 'Grading...'
-                              : isOpenRouter
-                                  ? 'Grade with OpenRouter AI'
-                                  : 'Grade with AI',
+                          _gradeButtonLabel,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 28),
                   Text(
-                    isOpenRouter
-                        ? 'SUPPORTED FORMAT: .TXT  |  OPENROUTER AI'
-                        : 'SUPPORTED FORMAT: .TXT  |  MOCK AI MODE',
+                    _providerFooter,
                     style: const TextStyle(
                       color: AppColors.muted,
                       fontSize: 10,

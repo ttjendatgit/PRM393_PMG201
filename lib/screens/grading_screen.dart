@@ -60,18 +60,22 @@ class GradingPage extends StatelessWidget {
     required this.submission,
     required this.result,
     required this.onGradeAll,
+    required this.onGradeCurrent,
     required this.onSaveReview,
     required this.aiMode,
     required this.assessment,
+    required this.isGrading,
     this.status,
   });
 
   final Submission? submission;
   final GradingResult? result;
   final VoidCallback onGradeAll;
+  final VoidCallback onGradeCurrent;
   final ValueChanged<GradingResult> onSaveReview;
   final AiMode aiMode;
   final Assessment? assessment;
+  final bool isGrading;
   final GradingStatus? status;
 
   @override
@@ -168,9 +172,11 @@ class GradingPage extends StatelessWidget {
         AiPanel(
           result: result,
           onGradeAll: onGradeAll,
+          onGradeCurrent: onGradeCurrent,
           onSaveReview: onSaveReview,
           aiMode: aiMode,
           assessment: assessment,
+          isGrading: isGrading,
           status: status,
         ),
       ],
@@ -187,17 +193,21 @@ class AiPanel extends StatefulWidget {
     super.key,
     required this.result,
     required this.onGradeAll,
+    required this.onGradeCurrent,
     required this.onSaveReview,
     required this.aiMode,
     required this.assessment,
+    required this.isGrading,
     this.status,
   });
 
   final GradingResult? result;
   final VoidCallback onGradeAll;
+  final VoidCallback onGradeCurrent;
   final ValueChanged<GradingResult> onSaveReview;
   final AiMode aiMode;
   final Assessment? assessment;
+  final bool isGrading;
   final GradingStatus? status;
 
   @override
@@ -373,9 +383,11 @@ class _AiPanelState extends State<AiPanel> {
       child: Row(
         children: [
           Icon(
-            widget.aiMode == AiMode.openRouter
-                ? Icons.hub_rounded
-                : Icons.science_rounded,
+            switch (widget.aiMode) {
+              AiMode.openRouter => Icons.hub_rounded,
+              AiMode.gemini => Icons.auto_awesome_rounded,
+              AiMode.mock => Icons.science_rounded,
+            },
             color: AppColors.primary,
           ),
           const SizedBox(width: 10),
@@ -395,32 +407,68 @@ class _AiPanelState extends State<AiPanel> {
   }
 
   Widget _buildPendingState() {
+    final providerName = switch (widget.aiMode) {
+      AiMode.mock => 'Mock AI',
+      AiMode.openRouter => 'OpenRouter AI',
+      AiMode.gemini => 'Gemini AI',
+    };
+    final providerIcon = switch (widget.aiMode) {
+      AiMode.mock => Icons.science_rounded,
+      AiMode.openRouter => Icons.hub_rounded,
+      AiMode.gemini => Icons.auto_awesome_rounded,
+    };
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           EmptyCard(
-            text: widget.aiMode == AiMode.openRouter
-                ? 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is saved, then click Grade with OpenRouter AI.'
-                : 'This submission has not been graded yet. Click Grade with AI to run mock grading.',
+            text: widget.aiMode == AiMode.mock
+                ? 'This submission has not been graded yet. Click Grade This File to run mock grading, or Grade All Files to grade all imported submissions.'
+                : 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is set in Settings, then grade.',
           ),
           const SizedBox(height: 16),
+          // Primary: grade this file only
           FilledButton.icon(
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.primaryContainer,
               foregroundColor: AppColors.text,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-            onPressed: widget.onGradeAll,
-            icon: Icon(
-              widget.aiMode == AiMode.openRouter
-                  ? Icons.hub_rounded
-                  : Icons.auto_awesome_rounded,
-            ),
+            onPressed: widget.isGrading ? null : widget.onGradeCurrent,
+            icon: widget.isGrading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.muted,
+                    ),
+                  )
+                : Icon(providerIcon),
             label: Text(
-              widget.aiMode == AiMode.openRouter
-                  ? 'Grade with OpenRouter AI'
-                  : 'Grade with AI',
+              widget.isGrading ? 'Grading...' : 'Grade This File ($providerName)',
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
+          ),
+          const SizedBox(height: 8),
+          // Secondary: grade all
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.muted,
+              side: const BorderSide(color: AppColors.outlineVariant),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: widget.isGrading ? null : widget.onGradeAll,
+            icon: const Icon(Icons.list_rounded, size: 18),
+            label: const Text('Grade All Files'),
           ),
         ],
       ),

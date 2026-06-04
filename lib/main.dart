@@ -107,6 +107,101 @@ class _AppShellState extends State<AppShell> {
   void _updateGeminiModelId(String value) => setState(() => _geminiModelId = value);
   void _updateAiMode(AiMode mode) => setState(() => _aiMode = mode);
 
+  // ── Grade single submission ───────────────────────────────────────────────
+
+  Future<void> gradeCurrent() async {
+    final submission = selectedSubmission;
+    if (submission == null) {
+      setState(() => message = 'No submission selected.');
+      return;
+    }
+
+    if (_aiMode == AiMode.openRouter) {
+      if (_apiKey.trim().isEmpty) {
+        setState(() => message = 'Please enter OpenRouter API key in Settings.');
+        return;
+      }
+      if (_modelId.trim().isEmpty) {
+        setState(() => message = 'Please enter a Model ID in Settings.');
+        return;
+      }
+      if (currentAssessment == null) {
+        setState(() => message = 'Please load or create an assessment first (Assessment Setup).');
+        return;
+      }
+    }
+
+    if (_aiMode == AiMode.gemini) {
+      if (_geminiApiKey.trim().isEmpty) {
+        setState(() => message = 'Please enter Gemini API key in Settings.');
+        return;
+      }
+      if (_geminiModelId.trim().isEmpty) {
+        setState(() => message = 'Please enter a Gemini Model ID in Settings.');
+        return;
+      }
+      if (currentAssessment == null) {
+        setState(() => message = 'Please load or create an assessment first (Assessment Setup).');
+        return;
+      }
+    }
+
+    setState(() {
+      isGrading = true;
+      _statuses = {..._statuses, submission.fileName: GradingStatus.pending};
+      message = 'Grading ${submission.fileName}...';
+    });
+
+    try {
+      GradingResult result;
+
+      if (_aiMode == AiMode.mock) {
+        await Future.delayed(const Duration(milliseconds: 650));
+        result = _mockGrade(submission);
+      } else if (_aiMode == AiMode.gemini) {
+        result = await GeminiGradingService.gradeSubmission(
+          apiKey: _geminiApiKey,
+          modelId: _geminiModelId,
+          assessment: currentAssessment!,
+          submission: submission,
+        );
+      } else {
+        result = await OpenRouterGradingService.gradeSubmission(
+          apiKey: _apiKey,
+          modelId: _modelId,
+          assessment: currentAssessment!,
+          submission: submission,
+        );
+      }
+
+      setState(() {
+        isGrading = false;
+        final idx = results.indexWhere((r) => r.fileName == submission.fileName);
+        if (idx >= 0) {
+          final copy = List<GradingResult>.from(results);
+          copy[idx] = result;
+          results = copy;
+        } else {
+          results = [...results, result];
+        }
+        _statuses = {..._statuses, result.fileName: GradingStatus.graded};
+        message = 'Graded: ${result.studentName.isNotEmpty ? result.studentName : submission.fileName}';
+      });
+    } catch (e) {
+      final full = e.toString();
+      debugPrint('Grading error for "${submission.fileName}": $full');
+      var display = full.startsWith('Exception: ') ? full.substring(11) : full;
+      final nl = display.indexOf('\n');
+      if (nl >= 0) display = display.substring(0, nl);
+      if (display.length > 160) display = '${display.substring(0, 160)}…';
+      setState(() {
+        isGrading = false;
+        _statuses = {..._statuses, submission.fileName: GradingStatus.error};
+        message = 'Error: $display';
+      });
+    }
+  }
+
   // ── File import ───────────────────────────────────────────────────────────
 
   Future<void> pickTxtFiles() async {
@@ -194,7 +289,6 @@ class _AppShellState extends State<AppShell> {
 
     setState(() {
       isGrading = true;
-      results = [];
       message = switch (_aiMode) {
         AiMode.mock => 'Mock AI grading started...',
         AiMode.openRouter =>
@@ -204,7 +298,7 @@ class _AppShellState extends State<AppShell> {
       };
     });
 
-    final temp = <GradingResult>[];
+    int gradedCount = 0;
 
     for (final submission in submissions) {
       try {
@@ -229,12 +323,19 @@ class _AppShellState extends State<AppShell> {
           );
         }
 
-        temp.add(result);
+        gradedCount++;
         setState(() {
-          results = List.from(temp);
+          // Update this submission's result in-place; never wipe other results.
+          final idx = results.indexWhere((r) => r.fileName == result.fileName);
+          if (idx >= 0) {
+            final copy = List<GradingResult>.from(results);
+            copy[idx] = result;
+            results = copy;
+          } else {
+            results = [...results, result];
+          }
           _statuses = {..._statuses, result.fileName: GradingStatus.graded};
-          message =
-              'Graded ${results.length}/${submissions.length} file(s)...';
+          message = 'Graded $gradedCount/${submissions.length} file(s)...';
         });
       } catch (e) {
         final full = e.toString();
@@ -256,11 +357,11 @@ class _AppShellState extends State<AppShell> {
     setState(() {
       isGrading = false;
       message = switch (_aiMode) {
-        AiMode.mock => 'Mock grading complete. ${temp.length} result(s) ready.',
+        AiMode.mock => 'Mock grading complete. $gradedCount result(s) ready.',
         AiMode.openRouter =>
-          'OpenRouter grading complete. ${temp.length} result(s) ready.',
+          'OpenRouter grading complete. $gradedCount result(s) ready.',
         AiMode.gemini =>
-          'Gemini grading complete. ${temp.length} result(s) ready.',
+          'Gemini grading complete. $gradedCount result(s) ready.',
       };
       selectedIndex = 3; // Grading screen
     });
@@ -630,9 +731,11 @@ class _AppShellState extends State<AppShell> {
         submission: selectedSubmission,
         result: selectedResult,
         onGradeAll: gradeAll,
+        onGradeCurrent: gradeCurrent,
         onSaveReview: _saveReview,
         aiMode: _aiMode,
         assessment: currentAssessment,
+        isGrading: isGrading,
         status: _statuses[selectedSubmission?.fileName],
       ),
       // 4 — Export
