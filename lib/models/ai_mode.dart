@@ -1,0 +1,1 @@
+enum AiMode { mock, openRouter }

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import '../models/ai_mode.dart';
+import '../models/assessment.dart';
 import '../models/grading_result.dart';
+import '../models/question_result.dart';
 import '../models/submission.dart';
 import '../theme/app_colors.dart';
 import '../widgets/empty_card.dart';
@@ -14,11 +17,15 @@ class GradingPage extends StatelessWidget {
     required this.submission,
     required this.result,
     required this.onGradeAll,
+    required this.aiMode,
+    required this.assessment,
   });
 
   final Submission? submission;
   final GradingResult? result;
   final VoidCallback onGradeAll;
+  final AiMode aiMode;
+  final Assessment? assessment;
 
   @override
   Widget build(BuildContext context) {
@@ -109,7 +116,12 @@ class GradingPage extends StatelessWidget {
             ),
           ),
         ),
-        AiPanel(result: result, onGradeAll: onGradeAll),
+        AiPanel(
+          result: result,
+          onGradeAll: onGradeAll,
+          aiMode: aiMode,
+          assessment: assessment,
+        ),
       ],
     );
   }
@@ -120,10 +132,14 @@ class AiPanel extends StatelessWidget {
     super.key,
     required this.result,
     required this.onGradeAll,
+    required this.aiMode,
+    required this.assessment,
   });
 
   final GradingResult? result;
   final VoidCallback onGradeAll;
+  final AiMode aiMode;
+  final Assessment? assessment;
 
   @override
   Widget build(BuildContext context) {
@@ -145,7 +161,12 @@ class AiPanel extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Icon(Icons.smart_toy_rounded, color: AppColors.primary),
+                Icon(
+                  aiMode == AiMode.openRouter
+                      ? Icons.hub_rounded
+                      : Icons.science_rounded,
+                  color: AppColors.primary,
+                ),
                 const SizedBox(width: 10),
                 const Text(
                   'AI Analysis Panel',
@@ -165,29 +186,21 @@ class AiPanel extends StatelessWidget {
           ),
           Expanded(
             child: result == null
-                ? Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        const EmptyCard(
-                          text:
-                              'This submission has not been graded yet. Click the button below to run mock AI grading.',
-                        ),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          onPressed: onGradeAll,
-                          icon: const Icon(Icons.auto_awesome_rounded),
-                          label: const Text('Run Mock AI Grading'),
-                        ),
-                      ],
-                    ),
-                  )
+                ? _buildPendingState()
                 : ListView(
                     padding: const EdgeInsets.all(24),
                     children: [
-                      ScoreCard(result: result!),
+                      ScoreCard(
+                        result: result!,
+                        maxRawScore: assessment?.totalRawScore ?? 100,
+                        maxConvertedScore: assessment?.totalConvertedScore ?? 10,
+                      ),
                       const SizedBox(height: 18),
-                      CriteriaMiniGrid(result: result!),
+                      result!.questionResults != null
+                          ? QuestionResultList(
+                              questionResults: result!.questionResults!,
+                            )
+                          : CriteriaMiniGrid(result: result!),
                       const SizedBox(height: 22),
                       FeedbackBox(feedback: result!.feedback),
                     ],
@@ -197,16 +210,64 @@ class AiPanel extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildPendingState() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          EmptyCard(
+            text: aiMode == AiMode.openRouter
+                ? 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is saved, then click Grade with OpenRouter AI.'
+                : 'This submission has not been graded yet. Click Grade with AI to run mock grading.',
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primaryContainer,
+              foregroundColor: AppColors.text,
+            ),
+            onPressed: onGradeAll,
+            icon: Icon(
+              aiMode == AiMode.openRouter
+                  ? Icons.hub_rounded
+                  : Icons.auto_awesome_rounded,
+            ),
+            label: Text(
+              aiMode == AiMode.openRouter ? 'Grade with OpenRouter AI' : 'Grade with AI',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class ScoreCard extends StatelessWidget {
-  const ScoreCard({super.key, required this.result});
+  const ScoreCard({
+    super.key,
+    required this.result,
+    required this.maxRawScore,
+    required this.maxConvertedScore,
+  });
 
   final GradingResult result;
+  final double maxRawScore;
+  final double maxConvertedScore;
+
+  String _fmt(double v, {bool integer = false}) {
+    if (integer) return v.toInt().toString();
+    return v % 1 == 0 ? v.toInt().toString() : v.toStringAsFixed(1);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final progress = result.finalScore / 10;
+    final rawProgress =
+        maxRawScore > 0 ? (result.totalRawScore / maxRawScore).clamp(0.0, 1.0) : 0.0;
+    final convProgress =
+        maxConvertedScore > 0 ? (result.finalScore / maxConvertedScore).clamp(0.0, 1.0) : 0.0;
+    final threshold = maxConvertedScore * 0.6;
+    final passed = result.finalScore >= threshold;
 
     return Container(
       padding: const EdgeInsets.all(22),
@@ -227,50 +288,196 @@ class ScoreCard extends StatelessWidget {
               letterSpacing: 1.2,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 14),
+          // Raw Score row
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                result.finalScore.toStringAsFixed(1),
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 52,
-                  fontWeight: FontWeight.w900,
-                  height: 1,
-                ),
+              const Text(
+                'Raw Score',
+                style: TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w700),
               ),
-              const SizedBox(width: 4),
-              const Padding(
-                padding: EdgeInsets.only(bottom: 7),
-                child: Text(
-                  '/ 10',
-                  style: TextStyle(color: AppColors.muted, fontSize: 18),
+              const Spacer(),
+              Text(
+                '${_fmt(result.totalRawScore, integer: true)} / ${_fmt(maxRawScore, integer: true)}',
+                style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(
+            minHeight: 4,
+            value: rawProgress,
+            backgroundColor: AppColors.surfaceHigh,
+            color: AppColors.outlineVariant,
+          ),
+          const SizedBox(height: 16),
+          // Converted Score row
+          Row(
+            children: [
+              const Text(
+                'Converted Score',
+                style: TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    result.finalScore.toStringAsFixed(1),
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 44,
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Text(
+                      '/ ${_fmt(maxConvertedScore)}',
+                      style: const TextStyle(color: AppColors.muted, fontSize: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           LinearProgressIndicator(
             minHeight: 8,
-            value: progress,
+            value: convProgress,
             backgroundColor: AppColors.surfaceHigh,
             color: AppColors.primary,
           ),
           const SizedBox(height: 10),
-          const Row(
+          Row(
             children: [
               Text(
-                'Threshold: 6.0',
-                style: TextStyle(color: AppColors.muted, fontSize: 12),
+                'Threshold: ${threshold.toStringAsFixed(1)}',
+                style: const TextStyle(color: AppColors.muted, fontSize: 12),
               ),
-              Spacer(),
+              const Spacer(),
               Text(
-                'Excellent',
-                style: TextStyle(color: AppColors.primary, fontSize: 12),
+                passed ? 'Pass' : 'Below Threshold',
+                style: TextStyle(
+                  color: passed ? AppColors.primary : AppColors.error,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class QuestionResultList extends StatelessWidget {
+  const QuestionResultList({super.key, required this.questionResults});
+
+  final List<QuestionResult> questionResults;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'QUESTION BREAKDOWN',
+          style: TextStyle(
+            color: AppColors.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 10),
+        ...questionResults.map(
+          (qr) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _QuestionResultCard(qr: qr),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuestionResultCard extends StatelessWidget {
+  const _QuestionResultCard({required this.qr});
+
+  final QuestionResult qr;
+
+  String _fmtMax(double v) => v % 1 == 0 ? v.toInt().toString() : v.toString();
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = qr.maxRawScore > 0
+        ? (qr.rawScore / qr.maxRawScore).clamp(0.0, 1.0)
+        : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  qr.questionTitle,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  TinyTag(
+                    text: 'Raw  ${qr.rawScore.toInt()} / ${_fmtMax(qr.maxRawScore)}',
+                  ),
+                  const SizedBox(height: 4),
+                  TinyTag(
+                    text: 'Conv  ${qr.convertedScore.toStringAsFixed(1)} / ${_fmtMax(qr.maxConvertedScore)}',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            minHeight: 4,
+            value: progress,
+            backgroundColor: AppColors.surfaceHigh,
+            color: AppColors.primary,
+          ),
+          if (qr.comment.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              qr.comment,
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+                height: 1.45,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -320,7 +527,7 @@ class CriteriaMiniGrid extends StatelessWidget {
               ),
               const SizedBox(height: 5),
               const Text(
-                'Mock AI scoring breakdown',
+                'Mock AI scoring',
                 style: TextStyle(
                   color: AppColors.muted,
                   fontSize: 12,
@@ -346,7 +553,7 @@ class FeedbackBox extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'DETAILED FEEDBACK',
+          'FINAL COMMENT',
           style: TextStyle(
             color: AppColors.muted,
             fontSize: 11,

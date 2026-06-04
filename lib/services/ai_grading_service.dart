@@ -14,6 +14,7 @@ class MockAiGradingService {
       fileName: fileName,
       studentId: studentId,
       studentName: studentName,
+      totalRawScore: 85.0,
       finalScore: 8.5,
       criteriaScores: const {
         'Project Charter': 1.4,

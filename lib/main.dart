@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'models/ai_mode.dart';
 import 'models/assessment.dart';
 import 'models/grading_result.dart';
 import 'models/submission.dart';
@@ -15,7 +16,7 @@ import 'screens/export_screen.dart';
 import 'screens/grading_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
-
+import 'services/ai/openrouter_grading_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/side_nav.dart';
 import 'widgets/top_bar.dart';
@@ -57,16 +58,33 @@ class _AppShellState extends State<AppShell> {
 
   Assessment? currentAssessment;
 
+  // AI configuration — stored in memory only, never persisted to disk
+  String _apiKey = '';
+  String _modelId = 'openrouter/free';
+  AiMode _aiMode = AiMode.mock;
+
   bool isGrading = false;
-  String message = 'Ready. Import .txt files to begin Phase 1.';
+  String message = 'Ready. Import .txt files to begin.';
+
+  // ── Assessment ────────────────────────────────────────────────────────────
 
   void _applyAssessment(Assessment assessment) {
     setState(() {
       currentAssessment = assessment;
       results = [];
-      message = 'Assessment loaded: ${assessment.courseCode} — ${assessment.assessmentTitle}';
+      message =
+          'Assessment loaded: ${assessment.courseCode} — ${assessment.assessmentTitle}';
     });
   }
+
+  // ── AI configuration ──────────────────────────────────────────────────────
+
+  void _updateApiKey(String value) => setState(() => _apiKey = value);
+  void _clearApiKey() => setState(() => _apiKey = '');
+  void _updateModelId(String value) => setState(() => _modelId = value);
+  void _updateAiMode(AiMode mode) => setState(() => _aiMode = mode);
+
+  // ── File import ───────────────────────────────────────────────────────────
 
   Future<void> pickTxtFiles() async {
     final result = await fp.FilePicker.pickFiles(
@@ -106,37 +124,90 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
-  Future<void> mockGradeAll() async {
+  // ── Grading ───────────────────────────────────────────────────────────────
+
+  Future<void> gradeAll() async {
     if (submissions.isEmpty) {
       setState(() => message = 'Please import .txt files first.');
       return;
     }
 
+    if (_aiMode == AiMode.openRouter) {
+      if (_apiKey.trim().isEmpty) {
+        setState(() => message = 'Please enter OpenRouter API key in Settings.');
+        return;
+      }
+      if (_modelId.trim().isEmpty) {
+        setState(() => message = 'Please enter a Model ID in Settings.');
+        return;
+      }
+      if (currentAssessment == null) {
+        setState(
+          () => message =
+              'Please load or create an assessment first (Assessment Setup).',
+        );
+        return;
+      }
+    }
+
     setState(() {
       isGrading = true;
       results = [];
-      message = 'Mock AI grading started...';
+      message = _aiMode == AiMode.mock
+          ? 'Mock AI grading started...'
+          : 'OpenRouter AI grading started (${submissions.length} file(s))...';
     });
 
     final temp = <GradingResult>[];
 
     for (final submission in submissions) {
-      await Future.delayed(const Duration(milliseconds: 650));
+      try {
+        GradingResult result;
 
-      temp.add(_mockGrade(submission));
+        if (_aiMode == AiMode.mock) {
+          await Future.delayed(const Duration(milliseconds: 650));
+          result = _mockGrade(submission);
+        } else {
+          result = await OpenRouterGradingService.gradeSubmission(
+            apiKey: _apiKey,
+            modelId: _modelId,
+            assessment: currentAssessment!,
+            submission: submission,
+          );
+        }
 
-      setState(() {
-        results = List.from(temp);
-        message = 'Graded ${results.length}/${submissions.length} file(s).';
-      });
+        temp.add(result);
+        setState(() {
+          results = List.from(temp);
+          message =
+              'Graded ${results.length}/${submissions.length} file(s)...';
+        });
+      } catch (e) {
+        final full = e.toString();
+        debugPrint('Grading error for "${submission.fileName}": $full');
+        // Strip "Exception: " prefix, take first line only, cap at 160 chars
+        var display = full.startsWith('Exception: ') ? full.substring(11) : full;
+        final nl = display.indexOf('\n');
+        if (nl >= 0) display = display.substring(0, nl);
+        if (display.length > 160) display = '${display.substring(0, 160)}…';
+        setState(() {
+          isGrading = false;
+          message = 'Error: $display';
+        });
+        return;
+      }
     }
 
     setState(() {
       isGrading = false;
-      message = 'Completed mock grading. Next phase: connect real AI API.';
+      message = _aiMode == AiMode.mock
+          ? 'Mock grading complete. ${temp.length} result(s) ready.'
+          : 'OpenRouter grading complete. ${temp.length} result(s) ready.';
       selectedIndex = 3; // Grading screen
     });
   }
+
+  // ── Mock grading ──────────────────────────────────────────────────────────
 
   GradingResult _mockGrade(Submission submission) {
     final nameInfo = _extractStudentInfo(submission.fileName);
@@ -145,40 +216,47 @@ class _AppShellState extends State<AppShell> {
     final finalScore = criteriaScores.values.fold(0.0, (a, b) => a + b);
     final feedback = _buildMockFeedback();
 
+    final a = currentAssessment;
+    final totalRaw = a != null && a.totalConvertedScore > 0
+        ? double.parse(
+            (finalScore / a.totalConvertedScore * a.totalRawScore)
+                .toStringAsFixed(0),
+          )
+        : finalScore * 10.0;
+
     return GradingResult(
       fileName: submission.fileName,
       studentId: nameInfo.$1,
       studentName: nameInfo.$2,
+      totalRawScore: totalRaw,
       finalScore: finalScore,
       criteriaScores: criteriaScores,
       feedback: feedback,
+      // questionResults is null for mock — grading screen falls back to criteriaScores grid
     );
   }
 
   Map<String, double> _buildMockCriteriaScores() {
     final a = currentAssessment;
 
-    // PMG201c PE2 sample: use specific realistic mock scores
-    if (a != null &&
-        a.questions.isNotEmpty &&
-        a.assessmentId == 'pmg201c-pe2-sample') {
+    if (a != null && a.questions.isNotEmpty && a.assessmentId == 'pmg201c-pe2-sample') {
       return {
-        a.questions[0].title: 1.4, // Project Charter Statement
-        a.questions[1].title: 1.8, // Cost / Budget Plan
-        a.questions[2].title: 2.4, // Risk Register
-        a.questions[3].title: 2.9, // RACI Matrix
+        a.questions[0].title: 1.4,
+        a.questions[1].title: 1.8,
+        a.questions[2].title: 2.4,
+        a.questions[3].title: 2.9,
       };
     }
 
-    // Generic assessment with parsed questions: 75% of convertedMaxScore
     if (a != null && a.questions.isNotEmpty) {
       return {
         for (final q in a.questions)
-          q.title: double.parse((q.convertedMaxScore * 0.75).toStringAsFixed(1))
+          q.title: double.parse(
+            (q.convertedMaxScore * 0.75).toStringAsFixed(1),
+          ),
       };
     }
 
-    // No assessment loaded: fall back to default PMG201c mock scores
     return const {
       'Project Charter': 1.4,
       'Cost / Budget': 1.8,
@@ -198,8 +276,8 @@ class _AppShellState extends State<AppShell> {
 
     if (a != null) {
       return 'Mock AI assessment for ${a.courseCode} — ${a.assessmentTitle}. '
-          'The submission demonstrates adequate understanding of the required topics. '
-          'Connect the real AI API in a future phase for detailed feedback.';
+          'The submission demonstrates adequate understanding. '
+          'Connect the real AI API for detailed feedback.';
     }
 
     return 'The submission shows a solid understanding of project planning. '
@@ -218,6 +296,8 @@ class _AppShellState extends State<AppShell> {
     return ('N/A', clean);
   }
 
+  // ── Excel export ──────────────────────────────────────────────────────────
+
   Future<void> exportExcel() async {
     if (results.isEmpty) {
       setState(() => message = 'No grading results to export.');
@@ -225,44 +305,78 @@ class _AppShellState extends State<AppShell> {
     }
 
     final excel = xls.Excel.createExcel();
+    final hasQR = results.first.questionResults != null;
 
-    final summary = excel['Summary'];
-    summary.appendRow([
-      xls.TextCellValue('STT'),
-      xls.TextCellValue('Student ID'),
-      xls.TextCellValue('Student Name'),
-      xls.TextCellValue('File Name'),
-      xls.TextCellValue('Final Score'),
-      xls.TextCellValue('Feedback'),
-    ]);
+    if (hasQR) {
+      final qTemplate = results.first.questionResults!;
+      final totalRawMax = qTemplate.fold<double>(0, (s, q) => s + q.maxRawScore);
+      final totalConvMax = qTemplate.fold<double>(0, (s, q) => s + q.maxConvertedScore);
 
-    for (int i = 0; i < results.length; i++) {
-      final item = results[i];
-      summary.appendRow([
-        xls.IntCellValue(i + 1),
-        xls.TextCellValue(item.studentId),
-        xls.TextCellValue(item.studentName),
-        xls.TextCellValue(item.fileName),
-        xls.DoubleCellValue(item.finalScore),
-        xls.TextCellValue(item.feedback),
+      final sheet = excel['Grading Results'];
+      sheet.appendRow([
+        xls.TextCellValue('STT'),
+        xls.TextCellValue('Student ID'),
+        xls.TextCellValue('Student Name'),
+        xls.TextCellValue('File Name'),
+        ...qTemplate.expand((qr) => [
+          xls.TextCellValue(
+            '${qr.questionId.toUpperCase()} Raw (/${qr.maxRawScore.toInt()})',
+          ),
+          xls.TextCellValue(
+            '${qr.questionId.toUpperCase()} Converted (/${qr.maxConvertedScore})',
+          ),
+        ]),
+        xls.TextCellValue('Total Raw (/${totalRawMax.toInt()})'),
+        xls.TextCellValue('Total Converted (/$totalConvMax)'),
+        xls.TextCellValue('AI Comment'),
       ]);
-    }
 
-    final breakdown = excel['Criteria Breakdown'];
-    breakdown.appendRow([
-      xls.TextCellValue('Student ID'),
-      xls.TextCellValue('Student Name'),
-      xls.TextCellValue('Criterion'),
-      xls.TextCellValue('Score'),
-    ]);
+      for (int i = 0; i < results.length; i++) {
+        final item = results[i];
+        final qrs = item.questionResults ?? [];
+        sheet.appendRow([
+          xls.IntCellValue(i + 1),
+          xls.TextCellValue(item.studentId),
+          xls.TextCellValue(item.studentName),
+          xls.TextCellValue(item.fileName),
+          ...qrs.expand((qr) => [
+            xls.DoubleCellValue(qr.rawScore),
+            xls.DoubleCellValue(qr.convertedScore),
+          ]),
+          xls.DoubleCellValue(item.totalRawScore),
+          xls.DoubleCellValue(item.finalScore),
+          xls.TextCellValue(item.feedback),
+        ]);
+      }
+    } else {
+      // Mock results: criteria-based (converted only)
+      final criteriaKeys = results.first.criteriaScores.keys.toList();
 
-    for (final result in results) {
-      for (final entry in result.criteriaScores.entries) {
-        breakdown.appendRow([
-          xls.TextCellValue(result.studentId),
-          xls.TextCellValue(result.studentName),
-          xls.TextCellValue(entry.key),
-          xls.DoubleCellValue(entry.value),
+      final sheet = excel['Summary'];
+      sheet.appendRow([
+        xls.TextCellValue('STT'),
+        xls.TextCellValue('Student ID'),
+        xls.TextCellValue('Student Name'),
+        xls.TextCellValue('File Name'),
+        ...criteriaKeys.map(xls.TextCellValue.new),
+        xls.TextCellValue('Total Raw'),
+        xls.TextCellValue('Total Converted'),
+        xls.TextCellValue('AI Comment'),
+      ]);
+
+      for (int i = 0; i < results.length; i++) {
+        final item = results[i];
+        sheet.appendRow([
+          xls.IntCellValue(i + 1),
+          xls.TextCellValue(item.studentId),
+          xls.TextCellValue(item.studentName),
+          xls.TextCellValue(item.fileName),
+          ...criteriaKeys.map(
+            (k) => xls.DoubleCellValue(item.criteriaScores[k] ?? 0.0),
+          ),
+          xls.DoubleCellValue(item.totalRawScore),
+          xls.DoubleCellValue(item.finalScore),
+          xls.TextCellValue(item.feedback),
         ]);
       }
     }
@@ -271,7 +385,10 @@ class _AppShellState extends State<AppShell> {
     final documents = await getApplicationDocumentsDirectory();
     final saveDir = downloads ?? documents;
 
-    final filePath = p.join(saveDir.path, 'PMG201c_grading_results.xlsx');
+    final fileName = currentAssessment != null
+        ? '${currentAssessment!.courseCode}_grading_results.xlsx'
+        : 'grading_results.xlsx';
+    final filePath = p.join(saveDir.path, fileName);
     final bytes = excel.save();
 
     if (bytes == null) {
@@ -285,6 +402,8 @@ class _AppShellState extends State<AppShell> {
 
     setState(() => message = 'Excel exported: ${file.path}');
   }
+
+  // ── Getters ───────────────────────────────────────────────────────────────
 
   GradingResult? get selectedResult {
     if (selectedSubmissionIndex == null) return null;
@@ -305,6 +424,8 @@ class _AppShellState extends State<AppShell> {
     return submissions[selectedSubmissionIndex!];
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -314,8 +435,9 @@ class _AppShellState extends State<AppShell> {
         results: results,
         message: message,
         isGrading: isGrading,
+        aiMode: _aiMode,
         onPickFiles: pickTxtFiles,
-        onGradeAll: mockGradeAll,
+        onGradeAll: gradeAll,
         onSelectSubmission: (index) {
           setState(() {
             selectedSubmissionIndex = index;
@@ -334,7 +456,9 @@ class _AppShellState extends State<AppShell> {
       GradingPage(
         submission: selectedSubmission,
         result: selectedResult,
-        onGradeAll: mockGradeAll,
+        onGradeAll: gradeAll,
+        aiMode: _aiMode,
+        assessment: currentAssessment,
       ),
       // 4 — Export
       ExportPage(
@@ -342,7 +466,15 @@ class _AppShellState extends State<AppShell> {
         onExportExcel: exportExcel,
       ),
       // 5 — Settings
-      const SettingsScreen(),
+      SettingsScreen(
+        apiKey: _apiKey,
+        modelId: _modelId,
+        aiMode: _aiMode,
+        onSaveApiKey: _updateApiKey,
+        onClearApiKey: _clearApiKey,
+        onSaveModelId: _updateModelId,
+        onChangeAiMode: _updateAiMode,
+      ),
     ];
 
     final titles = [

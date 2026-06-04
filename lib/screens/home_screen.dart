@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/ai_mode.dart';
 import '../models/grading_result.dart';
 import '../models/submission.dart';
 import '../theme/app_colors.dart';
@@ -14,6 +15,7 @@ class HomePage extends StatelessWidget {
     required this.results,
     required this.message,
     required this.isGrading,
+    required this.aiMode,
     required this.onPickFiles,
     required this.onGradeAll,
     required this.onSelectSubmission,
@@ -23,6 +25,7 @@ class HomePage extends StatelessWidget {
   final List<GradingResult> results;
   final String message;
   final bool isGrading;
+  final AiMode aiMode;
   final VoidCallback onPickFiles;
   final VoidCallback onGradeAll;
   final ValueChanged<int> onSelectSubmission;
@@ -36,10 +39,15 @@ class HomePage extends StatelessWidget {
           const PageTitle(
             title: 'Workspace',
             subtitle:
-                'Upload PMG201c submissions, prepare rubric criteria, and start the AI-assisted grading pipeline.',
+                'Upload student submissions (.txt), load an assessment rubric, and run AI-assisted grading.',
           ),
           const SizedBox(height: 10),
-          Text(message, style: const TextStyle(color: AppColors.primary)),
+          Text(
+            message,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.primary),
+          ),
           const SizedBox(height: 24),
           Expanded(
             child: Row(
@@ -58,6 +66,7 @@ class HomePage extends StatelessWidget {
                   flex: 7,
                   child: _UploadZone(
                     isGrading: isGrading,
+                    aiMode: aiMode,
                     onPickFiles: onPickFiles,
                     onGradeAll: onGradeAll,
                   ),
@@ -90,9 +99,8 @@ class _SubmissionsPanel extends StatelessWidget {
         _SectionHeader(title: 'Imported Submissions', action: 'View All'),
         const SizedBox(height: 14),
         if (submissions.isEmpty)
-          EmptyCard(
-            text:
-                'No .txt files imported yet. Click Select .txt Files to begin.',
+          const EmptyCard(
+            text: 'No .txt files imported yet. Click Select .txt Files to begin.',
           )
         else
           Expanded(
@@ -160,16 +168,20 @@ class _SubmissionsPanel extends StatelessWidget {
 class _UploadZone extends StatelessWidget {
   const _UploadZone({
     required this.isGrading,
+    required this.aiMode,
     required this.onPickFiles,
     required this.onGradeAll,
   });
 
   final bool isGrading;
+  final AiMode aiMode;
   final VoidCallback onPickFiles;
   final VoidCallback onGradeAll;
 
   @override
   Widget build(BuildContext context) {
+    final isOpenRouter = aiMode == AiMode.openRouter;
+
     return Container(
       constraints: const BoxConstraints(minHeight: 420),
       padding: const EdgeInsets.all(42),
@@ -178,9 +190,14 @@ class _UploadZone extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppColors.outlineVariant, width: 1.6),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
           Container(
             height: 86,
             width: 86,
@@ -197,7 +214,7 @@ class _UploadZone extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           const Text(
-            'Upload PMG201c Submissions',
+            'Upload Student Submissions',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.text,
@@ -209,7 +226,7 @@ class _UploadZone extends StatelessWidget {
           const SizedBox(
             width: 520,
             child: Text(
-              'Select plain text assignment files to begin translation, rubric matching, AI scoring, and Excel-ready result generation.',
+              'Select plain text (.txt) submission files. Load an assessment rubric in Assessment Setup, then grade with Mock AI or OpenRouter AI.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.muted, height: 1.5),
             ),
@@ -251,22 +268,36 @@ class _UploadZone extends StatelessWidget {
                   ),
                 ),
                 onPressed: isGrading ? null : onGradeAll,
-                icon: const Icon(Icons.translate_rounded),
-                label: Text(isGrading ? 'Grading...' : 'Translate + Grade'),
+                icon: Icon(
+                  isOpenRouter ? Icons.hub_rounded : Icons.auto_awesome_rounded,
+                ),
+                label: Text(
+                  isGrading
+                      ? 'Grading...'
+                      : isOpenRouter
+                          ? 'Grade with OpenRouter AI'
+                          : 'Grade with AI',
+                ),
               ),
             ],
           ),
           const SizedBox(height: 28),
-          const Text(
-            'SUPPORTED FORMAT: .TXT | PHASE 1 MOCK AI',
-            style: TextStyle(
+          Text(
+            isOpenRouter
+                ? 'SUPPORTED FORMAT: .TXT  |  OPENROUTER AI'
+                : 'SUPPORTED FORMAT: .TXT  |  MOCK AI MODE',
+            style: const TextStyle(
               color: AppColors.muted,
               fontSize: 10,
               fontWeight: FontWeight.w800,
               letterSpacing: 1.2,
             ),
           ),
-        ],
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

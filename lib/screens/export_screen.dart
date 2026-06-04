@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/grading_result.dart';
+import '../models/question_result.dart';
 import '../theme/app_colors.dart';
 import '../widgets/empty_card.dart';
 import '../widgets/page_frame.dart';
@@ -32,8 +33,8 @@ class ExportPage extends StatelessWidget {
           PageHeaderWithAction(
             title: 'Export Data',
             subtitle:
-                'Review and export PMG201c final assessment data, including scores, criteria breakdown, and AI-generated comments.',
-            badge: 'Course PMG201c',
+                'Review and export grading results including per-question scores and AI comments.',
+            badge: results.isEmpty ? 'No Results' : '${results.length} Results',
             button: 'Export to Excel',
             onPressed: onExportExcel,
           ),
@@ -67,7 +68,7 @@ class ExportPage extends StatelessWidget {
             child: results.isEmpty
                 ? const EmptyCard(
                     text:
-                        'No results yet. Go to Home, import files, then run Translate + Grade.',
+                        'No results yet. Go to Home, import files, then click Grade with AI.',
                   )
                 : _ExportTable(results: results),
           ),
@@ -82,6 +83,8 @@ class _ExportTable extends StatelessWidget {
 
   final List<GradingResult> results;
 
+  bool get _hasQuestionResults => results.first.questionResults != null;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -93,40 +96,147 @@ class _ExportTable extends StatelessWidget {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SingleChildScrollView(
-          child: DataTable(
-            headingRowColor:
-                const WidgetStatePropertyAll(AppColors.surfaceHigh),
-            columnSpacing: 34,
-            columns: const [
-              DataColumn(label: TableHeader('STUDENT ID')),
-              DataColumn(label: TableHeader('NAME')),
-              DataColumn(label: TableHeader('FILE')),
-              DataColumn(label: TableHeader('FINAL SCORE')),
-              DataColumn(label: TableHeader('AI SUMMARY COMMENT')),
-            ],
-            rows: results.map((item) {
-              return DataRow(
-                cells: [
-                  DataCell(Text(item.studentId)),
-                  DataCell(Text(item.studentName)),
-                  DataCell(Text(item.fileName)),
-                  DataCell(ScoreBubble(score: item.finalScore)),
-                  DataCell(
-                    SizedBox(
-                      width: 420,
-                      child: Text(
-                        item.feedback,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppColors.muted),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
-          ),
+          child: _hasQuestionResults
+              ? _buildQuestionTable()
+              : _buildCriteriaTable(),
         ),
       ),
     );
+  }
+
+  // Full table with per-question raw + converted columns (OpenRouter results)
+  DataTable _buildQuestionTable() {
+    final qTemplate = results.first.questionResults!;
+
+    return DataTable(
+      headingRowColor: const WidgetStatePropertyAll(AppColors.surfaceHigh),
+      columnSpacing: 24,
+      columns: [
+        const DataColumn(label: TableHeader('STUDENT ID')),
+        const DataColumn(label: TableHeader('NAME')),
+        const DataColumn(label: TableHeader('FILE')),
+        ...qTemplate.expand((qr) => [
+          DataColumn(label: TableHeader('${qr.questionId.toUpperCase()} RAW')),
+          DataColumn(label: TableHeader('${qr.questionId.toUpperCase()} CONV')),
+        ]),
+        const DataColumn(label: TableHeader('TOTAL RAW')),
+        const DataColumn(label: TableHeader('TOTAL CONV')),
+        const DataColumn(label: TableHeader('AI COMMENT')),
+      ],
+      rows: results.map((item) {
+        final qrs = item.questionResults ?? <QuestionResult>[];
+        return DataRow(cells: [
+          DataCell(Text(item.studentId)),
+          DataCell(Text(item.studentName)),
+          DataCell(Text(item.fileName)),
+          ...qrs.expand((qr) => [
+            DataCell(_RawCell(value: qr.rawScore, max: qr.maxRawScore)),
+            DataCell(_ConvCell(value: qr.convertedScore, max: qr.maxConvertedScore)),
+          ]),
+          DataCell(_RawCell(value: item.totalRawScore, max: _totalRawMax(qTemplate))),
+          DataCell(ScoreBubble(score: item.finalScore)),
+          DataCell(
+            SizedBox(
+              width: 320,
+              child: Text(
+                item.feedback,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.muted),
+              ),
+            ),
+          ),
+        ]);
+      }).toList(),
+    );
+  }
+
+  // Fallback table using criteriaScores (mock results)
+  DataTable _buildCriteriaTable() {
+    final criteriaKeys = results.first.criteriaScores.keys.toList();
+
+    return DataTable(
+      headingRowColor: const WidgetStatePropertyAll(AppColors.surfaceHigh),
+      columnSpacing: 28,
+      columns: [
+        const DataColumn(label: TableHeader('STUDENT ID')),
+        const DataColumn(label: TableHeader('NAME')),
+        const DataColumn(label: TableHeader('FILE')),
+        ...criteriaKeys.map(
+          (k) => DataColumn(
+            label: TableHeader(k.length > 18 ? '${k.substring(0, 16)}…' : k.toUpperCase()),
+          ),
+        ),
+        const DataColumn(label: TableHeader('TOTAL CONV')),
+        const DataColumn(label: TableHeader('AI COMMENT')),
+      ],
+      rows: results.map((item) {
+        return DataRow(cells: [
+          DataCell(Text(item.studentId)),
+          DataCell(Text(item.studentName)),
+          DataCell(Text(item.fileName)),
+          ...criteriaKeys.map(
+            (k) => DataCell(ScoreBubble(score: item.criteriaScores[k] ?? 0.0)),
+          ),
+          DataCell(ScoreBubble(score: item.finalScore)),
+          DataCell(
+            SizedBox(
+              width: 360,
+              child: Text(
+                item.feedback,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.muted),
+              ),
+            ),
+          ),
+        ]);
+      }).toList(),
+    );
+  }
+
+  double _totalRawMax(List<QuestionResult> qs) =>
+      qs.fold(0, (sum, q) => sum + q.maxRawScore);
+}
+
+class _RawCell extends StatelessWidget {
+  const _RawCell({required this.value, required this.max});
+
+  final double value;
+  final double max;
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = max > 0 ? value / max : 0.0;
+    final color = pct >= 0.8
+        ? AppColors.primary
+        : pct >= 0.6
+            ? AppColors.secondary
+            : AppColors.error;
+
+    return Container(
+      height: 32,
+      constraints: const BoxConstraints(minWidth: 52),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        border: Border.all(color: color.withValues(alpha: 0.30)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        value.toInt().toString(),
+        style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 13),
+      ),
+    );
+  }
+}
+
+class _ConvCell extends StatelessWidget {
+  const _ConvCell({required this.value, required this.max});
+
+  final double value;
+  final double max;
+
+  @override
+  Widget build(BuildContext context) {
+    return ScoreBubble(score: value);
   }
 }

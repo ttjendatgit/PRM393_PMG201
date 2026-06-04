@@ -187,24 +187,23 @@ class _RubricCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Row(
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
                     children: [
                       _ScoreBadge(
                         label: 'Raw',
                         value: '${question.rawMaxScore.toInt()} pts',
                       ),
-                      const SizedBox(width: 8),
                       _ScoreBadge(
-                        label: 'Converted',
+                        label: 'Conv',
                         value: '/${question.convertedMaxScore.toInt()}',
                       ),
-                      if (question.subCriteria.isNotEmpty) ...[
-                        const SizedBox(width: 8),
+                      if (question.subCriteria.isNotEmpty)
                         _ScoreBadge(
                           label: 'Sub',
                           value: '${question.subCriteria.length} criteria',
                         ),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 12),
