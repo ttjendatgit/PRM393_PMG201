@@ -42,7 +42,7 @@ class HomePage extends StatelessWidget {
           const PageTitle(
             title: 'Workspace',
             subtitle:
-                'Upload student submissions (.txt), load an assessment rubric, and run AI-assisted grading.',
+                'Upload student submissions (.txt, .md, .docx, .pdf, .csv, .xlsx), load an assessment rubric, and run AI-assisted grading.',
           ),
           const SizedBox(height: 10),
           Text(
@@ -116,7 +116,7 @@ class _SubmissionsPanel extends StatelessWidget {
         const SizedBox(height: 14),
         if (submissions.isEmpty)
           const EmptyCard(
-            text: 'No .txt files imported yet. Click Select .txt Files to begin.',
+            text: 'No submission files imported yet. Click Select Submission Files to begin.',
           )
         else
           Expanded(
@@ -161,7 +161,17 @@ class _SubmissionsPanel extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          if (result != null) ...[
+                          if (item.hasError) ...[
+                            Text(
+                              item.extractionError!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.error,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ] else if (result != null) ...[
                             Row(
                               children: [
                                 _InfoChip(
@@ -253,9 +263,9 @@ class _UploadZone extends StatelessWidget {
   };
 
   String get _providerFooter => switch (aiMode) {
-    AiMode.mock => 'SUPPORTED FORMAT: .TXT  |  MOCK AI MODE',
-    AiMode.openRouter => 'SUPPORTED FORMAT: .TXT  |  OPENROUTER AI',
-    AiMode.gemini => 'SUPPORTED FORMAT: .TXT  |  GEMINI AI',
+    AiMode.mock => 'SUPPORTED: .TXT, .MD, .DOCX, .PDF, .CSV, .XLSX  |  MOCK AI MODE',
+    AiMode.openRouter => 'SUPPORTED: .TXT, .MD, .DOCX, .PDF, .CSV, .XLSX  |  OPENROUTER AI',
+    AiMode.gemini => 'SUPPORTED: .TXT, .MD, .DOCX, .PDF, .CSV, .XLSX  |  GEMINI AI',
   };
 
   @override
@@ -304,7 +314,7 @@ class _UploadZone extends StatelessWidget {
                   const SizedBox(
                     width: 520,
                     child: Text(
-                      'Select plain text (.txt) submission files. Load an assessment rubric in Assessment Setup, then grade with Mock AI, OpenRouter AI, or Gemini AI.',
+                      'Select submission files (.txt, .md, .docx, .pdf, .csv, .xlsx). Load an assessment rubric in Assessment Setup, then grade with Mock AI, OpenRouter AI, or Gemini AI.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: AppColors.muted, height: 1.5),
                     ),
@@ -329,7 +339,7 @@ class _UploadZone extends StatelessWidget {
                         onPressed: onPickFiles,
                         icon: const Icon(Icons.folder_open_rounded),
                         label: const Text(
-                          'Select .txt Files',
+                          'Select Submission Files',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                       ),

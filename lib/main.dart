@@ -19,6 +19,7 @@ import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/ai/gemini_grading_service.dart';
 import 'services/ai/openrouter_grading_service.dart';
+import 'services/file/document_text_extractor_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/side_nav.dart';
 import 'widgets/top_bar.dart';
@@ -68,8 +69,10 @@ class _AppShellState extends State<AppShell> {
   String _geminiModelId = 'gemini-2.0-flash-lite';
   AiMode _aiMode = AiMode.mock;
 
+  Map<String, String> _gradingErrors = {};
+
   bool isGrading = false;
-  String message = 'Ready. Import .txt files to begin.';
+  String message = 'Ready. Import submission files to begin.';
 
   // ── Assessment ────────────────────────────────────────────────────────────
 
@@ -146,6 +149,18 @@ class _AppShellState extends State<AppShell> {
       }
     }
 
+    if (submission.hasError || submission.content.trim().isEmpty) {
+      final errMsg = submission.hasError
+          ? 'Cannot grade: ${submission.extractionError}'
+          : 'Cannot grade: file content is empty.';
+      setState(() {
+        message = 'Error: $errMsg';
+        _statuses = {..._statuses, submission.fileName: GradingStatus.error};
+        _gradingErrors = {..._gradingErrors, submission.fileName: errMsg};
+      });
+      return;
+    }
+
     setState(() {
       isGrading = true;
       _statuses = {..._statuses, submission.fileName: GradingStatus.pending};
@@ -185,6 +200,7 @@ class _AppShellState extends State<AppShell> {
           results = [...results, result];
         }
         _statuses = {..._statuses, result.fileName: GradingStatus.graded};
+        _gradingErrors = Map.from(_gradingErrors)..remove(submission.fileName);
         message = 'Graded: ${result.studentName.isNotEmpty ? result.studentName : submission.fileName}';
       });
     } catch (e) {
@@ -197,6 +213,7 @@ class _AppShellState extends State<AppShell> {
       setState(() {
         isGrading = false;
         _statuses = {..._statuses, submission.fileName: GradingStatus.error};
+        _gradingErrors = {..._gradingErrors, submission.fileName: display};
         message = 'Error: $display';
       });
     }
@@ -208,7 +225,7 @@ class _AppShellState extends State<AppShell> {
     final result = await fp.FilePicker.pickFiles(
       allowMultiple: true,
       type: fp.FileType.custom,
-      allowedExtensions: ['txt'],
+      allowedExtensions: DocumentTextExtractorService.supportedExtensions,
     );
 
     if (result == null) {
@@ -222,24 +239,44 @@ class _AppShellState extends State<AppShell> {
       final path = file.path;
       if (path == null) continue;
 
-      final content = await File(path).readAsString();
+      final extracted = await DocumentTextExtractorService.extractTextFromFile(path);
+
+      String? extractionError;
+      if (!extracted.success) {
+        extractionError = extracted.errorMessage;
+      } else if (extracted.isEmpty) {
+        final ext = file.name.split('.').last.toLowerCase();
+        extractionError = ext == 'pdf'
+            ? 'This PDF may be scanned or image-based. Please convert it to text or upload a text-based file.'
+            : (extracted.warningMessage ?? 'No text could be extracted from this file.');
+      }
 
       picked.add(
         Submission(
           fileName: file.name,
           filePath: path,
-          content: content,
+          content: extracted.extractedText,
           sizeInBytes: file.size,
+          extractionError: extractionError,
         ),
       );
     }
 
+    final errorCount = picked.where((s) => s.hasError).length;
+    final validCount = picked.length - errorCount;
+
     setState(() {
       submissions = picked;
       results = [];
-      _statuses = {for (final s in picked) s.fileName: GradingStatus.pending};
+      _gradingErrors = {};
+      _statuses = {
+        for (final s in picked)
+          s.fileName: s.hasError ? GradingStatus.error : GradingStatus.pending,
+      };
       selectedSubmissionIndex = picked.isNotEmpty ? 0 : null;
-      message = 'Imported ${picked.length} .txt file(s).';
+      message = errorCount > 0
+          ? 'Imported ${picked.length} file(s): $validCount valid, $errorCount with extraction error(s).'
+          : 'Imported ${picked.length} submission file(s).';
     });
   }
 
@@ -247,7 +284,7 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> gradeAll() async {
     if (submissions.isEmpty) {
-      setState(() => message = 'Please import .txt files first.');
+      setState(() => message = 'Please import submission files first.');
       return;
     }
 
@@ -287,20 +324,45 @@ class _AppShellState extends State<AppShell> {
       }
     }
 
+    // Skip already reviewed or exported submissions; grade pending/error/graded.
+    final toGrade = submissions.where((s) {
+      final st = _statuses[s.fileName];
+      return st != GradingStatus.reviewed && st != GradingStatus.exported;
+    }).toList();
+
+    if (toGrade.isEmpty) {
+      setState(() => message =
+          'All submissions are already reviewed or exported. Re-import files to grade again.');
+      return;
+    }
+
     setState(() {
       isGrading = true;
-      message = switch (_aiMode) {
-        AiMode.mock => 'Mock AI grading started...',
-        AiMode.openRouter =>
-          'OpenRouter AI grading started (${submissions.length} file(s))...',
-        AiMode.gemini =>
-          'Gemini AI grading started (${submissions.length} file(s))...',
-      };
+      message = 'Starting grading for ${toGrade.length} file(s)...';
     });
 
     int gradedCount = 0;
+    int errorCount = 0;
 
-    for (final submission in submissions) {
+    for (int i = 0; i < toGrade.length; i++) {
+      final submission = toGrade[i];
+
+      setState(() {
+        message = 'Grading ${i + 1}/${toGrade.length}: ${submission.fileName}';
+      });
+
+      if (submission.hasError || submission.content.trim().isEmpty) {
+        final errMsg = submission.hasError
+            ? 'Cannot grade: ${submission.extractionError}'
+            : 'Cannot grade: file content is empty.';
+        errorCount++;
+        setState(() {
+          _statuses = {..._statuses, submission.fileName: GradingStatus.error};
+          _gradingErrors = {..._gradingErrors, submission.fileName: errMsg};
+        });
+        continue;
+      }
+
       try {
         GradingResult result;
 
@@ -325,7 +387,7 @@ class _AppShellState extends State<AppShell> {
 
         gradedCount++;
         setState(() {
-          // Update this submission's result in-place; never wipe other results.
+          // Update result in-place — never wipe other results.
           final idx = results.indexWhere((r) => r.fileName == result.fileName);
           if (idx >= 0) {
             final copy = List<GradingResult>.from(results);
@@ -335,35 +397,41 @@ class _AppShellState extends State<AppShell> {
             results = [...results, result];
           }
           _statuses = {..._statuses, result.fileName: GradingStatus.graded};
-          message = 'Graded $gradedCount/${submissions.length} file(s)...';
+          _gradingErrors = Map.from(_gradingErrors)..remove(submission.fileName);
         });
       } catch (e) {
+        errorCount++;
         final full = e.toString();
         debugPrint('Grading error for "${submission.fileName}": $full');
-        // Strip "Exception: " prefix, take first line only, cap at 160 chars
         var display = full.startsWith('Exception: ') ? full.substring(11) : full;
         final nl = display.indexOf('\n');
         if (nl >= 0) display = display.substring(0, nl);
         if (display.length > 160) display = '${display.substring(0, 160)}…';
         setState(() {
-          isGrading = false;
+          // Mark this file as error but keep all other results intact.
           _statuses = {..._statuses, submission.fileName: GradingStatus.error};
-          message = 'Error: $display';
+          _gradingErrors = {..._gradingErrors, submission.fileName: display};
         });
-        return;
+        // Continue to next submission — do NOT return.
       }
     }
 
     setState(() {
       isGrading = false;
-      message = switch (_aiMode) {
-        AiMode.mock => 'Mock grading complete. $gradedCount result(s) ready.',
-        AiMode.openRouter =>
-          'OpenRouter grading complete. $gradedCount result(s) ready.',
-        AiMode.gemini =>
-          'Gemini grading complete. $gradedCount result(s) ready.',
-      };
-      selectedIndex = 3; // Grading screen
+      if (errorCount > 0) {
+        message =
+            'Grading complete: $gradedCount graded, $errorCount error(s). '
+            'Click a failed file to retry.';
+      } else {
+        message = switch (_aiMode) {
+          AiMode.mock => 'Mock grading complete. $gradedCount result(s) ready.',
+          AiMode.openRouter =>
+            'OpenRouter grading complete. $gradedCount result(s) ready.',
+          AiMode.gemini =>
+            'Gemini grading complete. $gradedCount result(s) ready.',
+        };
+      }
+      if (results.isNotEmpty) selectedIndex = 3;
     });
   }
 
@@ -446,7 +514,8 @@ class _AppShellState extends State<AppShell> {
   }
 
   (String, String) _extractStudentInfo(String fileName) {
-    final clean = fileName.replaceAll('.txt', '');
+    final lastDot = fileName.lastIndexOf('.');
+    final clean = lastDot > 0 ? fileName.substring(0, lastDot) : fileName;
     final parts = clean.split('_');
 
     if (parts.length >= 2 && parts.first.toUpperCase().startsWith('SE')) {
@@ -737,6 +806,7 @@ class _AppShellState extends State<AppShell> {
         assessment: currentAssessment,
         isGrading: isGrading,
         status: _statuses[selectedSubmission?.fileName],
+        gradingError: _gradingErrors[selectedSubmission?.fileName],
       ),
       // 4 — Export
       ExportPage(

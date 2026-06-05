@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:archive/archive_io.dart';
 import 'package:excel/excel.dart' as xl;
+import 'package:flutter/foundation.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:xml/xml.dart' as xmllib;
 
@@ -57,7 +58,6 @@ class DocumentExtractionResult {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class DocumentTextExtractorService {
-  /// Supported file extensions for assessment files.
   static const List<String> supportedExtensions = [
     'txt',
     'md',
@@ -69,7 +69,7 @@ class DocumentTextExtractorService {
 
   /// Extract readable text from [path].
   ///
-  /// Always returns a [DocumentExtractionResult].  Check [result.success],
+  /// Always returns a [DocumentExtractionResult]. Check [result.success],
   /// [result.warningMessage], and [result.errorMessage] before using the text.
   static Future<DocumentExtractionResult> extractTextFromFile(
     String path,
@@ -79,6 +79,9 @@ class DocumentTextExtractorService {
     final ext = fileName.contains('.')
         ? fileName.split('.').last.toLowerCase()
         : '';
+
+    debugPrint('[Extractor] File: $path');
+    debugPrint('[Extractor] Extension: "$ext"');
 
     try {
       switch (ext) {
@@ -99,6 +102,7 @@ class DocumentTextExtractorService {
           return await _extractXlsx(file, fileName, ext);
 
         default:
+          debugPrint('[Extractor] Unsupported extension: "$ext"');
           return DocumentExtractionResult.error(
             fileName: fileName,
             filePath: path,
@@ -110,6 +114,7 @@ class DocumentTextExtractorService {
           );
       }
     } catch (e) {
+      debugPrint('[Extractor] Uncaught error for "$fileName": $e');
       return DocumentExtractionResult.error(
         fileName: fileName,
         filePath: path,
@@ -127,11 +132,11 @@ class DocumentTextExtractorService {
     String fileName,
     String ext,
   ) async {
+    debugPrint('[Extractor] Branch: plaintext ($ext)');
     String text;
     try {
       text = await file.readAsString(encoding: utf8);
     } catch (_) {
-      // Fallback to latin-1 if UTF-8 decoding fails
       try {
         text = await file.readAsString(encoding: latin1);
       } catch (e) {
@@ -143,7 +148,7 @@ class DocumentTextExtractorService {
         );
       }
     }
-
+    debugPrint('[Extractor] Plaintext chars: ${text.length}');
     return DocumentExtractionResult(
       fileName: fileName,
       filePath: file.path,
@@ -154,55 +159,101 @@ class DocumentTextExtractorService {
   }
 
   // ── .docx ───────────────────────────────────────────────────────────────────
+  //
+  // Root cause of old empty-text bug:
+  //   _collectRunText used findAllElements('t') which in xml 6.x matches by
+  //   *qualified* name — so it looked for <t>, not <w:t> — returning nothing.
+  //   Fix: traverse descendants and match by localName throughout.
 
   static Future<DocumentExtractionResult> _extractDocx(
     File file,
     String fileName,
     String ext,
   ) async {
+    debugPrint('[Extractor] Branch: docx');
+
     final bytes = await file.readAsBytes();
-    final archive = ZipDecoder().decodeBytes(bytes);
 
-    // word/document.xml contains the main body
-    final docEntry = archive.files.where(
-      (f) => f.name == 'word/document.xml',
-    ).firstOrNull;
-
-    if (docEntry == null) {
+    Archive archive;
+    try {
+      archive = ZipDecoder().decodeBytes(bytes);
+    } catch (e) {
       return DocumentExtractionResult.error(
         fileName: fileName,
         filePath: file.path,
         extension: ext,
         errorMessage:
-            '"$fileName" does not appear to be a valid .docx file '
-            '(word/document.xml not found).',
+            '"$fileName" does not appear to be a valid .docx file: $e',
       );
     }
 
-    final xmlString = utf8.decode(docEntry.content as List<int>);
-    final document = xmllib.XmlDocument.parse(xmlString);
+    debugPrint('[Extractor] DOCX archive entries: ${archive.files.length}');
 
     final buffer = StringBuffer();
+    final foundParts = <String>[];
 
-    // Namespaces used by Word XML
-    const wNs = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    // Build list of XML parts to process, in reading order.
+    final partsToProcess = <String>['word/document.xml'];
+    for (final f in archive.files) {
+      if (RegExp(r'^word/header\d*\.xml$').hasMatch(f.name)) {
+        partsToProcess.add(f.name);
+      } else if (RegExp(r'^word/footer\d*\.xml$').hasMatch(f.name)) {
+        partsToProcess.add(f.name);
+      }
+    }
+    if (archive.files.any((f) => f.name == 'word/footnotes.xml')) {
+      partsToProcess.add('word/footnotes.xml');
+    }
+    if (archive.files.any((f) => f.name == 'word/endnotes.xml')) {
+      partsToProcess.add('word/endnotes.xml');
+    }
 
-    // Iterate body children: paragraphs (<w:p>) and table rows (<w:tr>)
-    final body = document.findAllElements('body', namespace: wNs).firstOrNull
-        ?? document.findAllElements('body').firstOrNull;
+    debugPrint('[Extractor] DOCX parts to process: $partsToProcess');
 
-    if (body == null) {
-      return DocumentExtractionResult.error(
+    for (final partName in partsToProcess) {
+      final entry = archive.files
+          .where((f) => f.name == partName)
+          .firstOrNull;
+
+      if (entry == null) {
+        debugPrint('[Extractor] DOCX part not found: $partName');
+        continue;
+      }
+
+      foundParts.add(partName);
+      try {
+        final xmlString = utf8.decode(entry.content as List<int>);
+        final doc = xmllib.XmlDocument.parse(xmlString);
+        _docxExtractFromRoot(doc.rootElement, buffer);
+      } catch (e) {
+        debugPrint('[Extractor] Failed to parse DOCX part "$partName": $e');
+        // Continue to next part — don't abort on one bad part.
+      }
+    }
+
+    debugPrint('[Extractor] DOCX parts found: $foundParts');
+
+    final text = buffer.toString().trim();
+    debugPrint('[Extractor] DOCX extracted chars: ${text.length}');
+
+    if (text.isEmpty) {
+      debugPrint(
+        '[Extractor] DOCX zero chars — possible causes: '
+        'image-only content, protected document, '
+        'unsupported content structure, or parts list: $foundParts',
+      );
+      return DocumentExtractionResult(
         fileName: fileName,
         filePath: file.path,
         extension: ext,
-        errorMessage: 'Could not locate document body in "$fileName".',
+        extractedText: '',
+        success: true,
+        warningMessage:
+            'Could not extract text from this DOCX. The file may contain '
+            'unsupported objects, images, or protected content. '
+            'Please try saving it as a standard Word .docx or paste the text manually.',
       );
     }
-
-    _extractBodyText(body, buffer);
-
-    final text = buffer.toString().trim();
 
     return DocumentExtractionResult(
       fileName: fileName,
@@ -210,52 +261,141 @@ class DocumentTextExtractorService {
       extension: ext,
       extractedText: text,
       success: true,
-      warningMessage: text.isEmpty
-          ? 'The document "$fileName" appears to be empty or uses an unsupported '
-              'content structure. Please review the extracted text or paste manually.'
-          : null,
     );
   }
 
-  /// Recursively walk body nodes, emitting text with paragraph/table breaks.
-  static void _extractBodyText(xmllib.XmlNode body, StringBuffer buf) {
-    for (final child in body.children) {
+  // ── DOCX XML helpers ────────────────────────────────────────────────────────
+
+  /// Entry point for one XML part: find the content container then walk it.
+  ///
+  /// document.xml → w:body; header/footer → w:hdr/w:ftr;
+  /// footnotes/endnotes → w:footnotes/w:endnotes; fallback → root itself.
+  static void _docxExtractFromRoot(
+    xmllib.XmlElement root,
+    StringBuffer buf,
+  ) {
+    const containerLocalNames = {
+      'body', 'hdr', 'ftr', 'footnotes', 'endnotes',
+    };
+    final container = root.descendants
+        .whereType<xmllib.XmlElement>()
+        .where((e) => containerLocalNames.contains(e.localName))
+        .firstOrNull ?? root;
+
+    _walkDocxElement(container, buf);
+  }
+
+  /// Walk any DOCX XML node, dispatching on localName.
+  static void _walkDocxElement(xmllib.XmlNode node, StringBuffer buf) {
+    for (final child in node.children) {
       if (child is! xmllib.XmlElement) continue;
       final local = child.localName;
 
-      if (local == 'p') {
-        // Paragraph — collect all <w:t> text runs
-        final paraText = _collectRunText(child);
-        if (paraText.isNotEmpty) {
-          buf.write(paraText);
-        }
-        buf.writeln();
-      } else if (local == 'tbl') {
-        // Table — extract rows, cells tab-separated
-        _extractTableText(child, buf);
-      } else {
-        // Recurse into other containers (e.g. <w:body> children we may have missed)
-        _extractBodyText(child, buf);
+      switch (local) {
+        case 'p':
+          // Paragraph — collect w:t runs in document order, then newline.
+          final text = _collectDocxParagraphText(child);
+          buf.writeln(text);
+
+        case 'tbl':
+          _walkDocxTable(child, buf);
+
+        case 'sdt':
+          // Structured document tag (content control) — descend into sdtContent.
+          final content = child.children
+              .whereType<xmllib.XmlElement>()
+              .where((e) => e.localName == 'sdtContent')
+              .firstOrNull;
+          if (content != null) _walkDocxElement(content, buf);
+
+        case 'footnote':
+        case 'endnote':
+          // Skip separator/continuation stubs (id <= 0).
+          final idAttr = child.attributes
+              .where((a) => a.localName == 'id')
+              .firstOrNull;
+          final id = int.tryParse(idAttr?.value ?? '') ?? -1;
+          if (id > 0) _walkDocxElement(child, buf);
+
+        default:
+          // Recurse into unknown containers (e.g. w:txbxContent, w:ins, etc.)
+          _walkDocxElement(child, buf);
       }
     }
   }
 
-  /// Extract all `<w:t>` text runs from a paragraph element.
-  static String _collectRunText(xmllib.XmlElement para) {
+  /// Collect all text from a single paragraph element.
+  ///
+  /// Iterates ALL descendants by localName — avoids the xml-6.x bug where
+  /// findAllElements('t') matches by qualified name and misses w:t elements.
+  static String _collectDocxParagraphText(xmllib.XmlElement para) {
     final sb = StringBuffer();
-    for (final t in para.findAllElements('t')) {
-      sb.write(t.innerText);
+    for (final el in para.descendants.whereType<xmllib.XmlElement>()) {
+      switch (el.localName) {
+        case 't':
+          sb.write(el.innerText);
+        case 'br':
+          sb.write('\n');
+        case 'tab':
+          sb.write('\t');
+      }
     }
     return sb.toString();
   }
 
-  /// Extract table rows as tab-separated cells, one row per line.
-  static void _extractTableText(xmllib.XmlElement table, StringBuffer buf) {
-    for (final row in table.findElements('tr')) {
-      final cells = row.findElements('tc').map(_collectRunText).toList();
-      if (cells.any((c) => c.isNotEmpty)) {
-        buf.writeln(cells.join('\t'));
+  /// Extract table rows as tab-separated cells.
+  static void _walkDocxTable(xmllib.XmlElement table, StringBuffer buf) {
+    for (final child in table.children.whereType<xmllib.XmlElement>()) {
+      switch (child.localName) {
+        case 'tr':
+          _walkDocxTableRow(child, buf);
+        case 'sdt':
+          final content = child.children
+              .whereType<xmllib.XmlElement>()
+              .where((e) => e.localName == 'sdtContent')
+              .firstOrNull;
+          if (content != null) _walkDocxTable(content, buf);
+        default:
+          break; // skip tblPr, tblGrid, etc.
       }
+    }
+  }
+
+  static void _walkDocxTableRow(xmllib.XmlElement row, StringBuffer buf) {
+    final cells = <String>[];
+
+    for (final child in row.children.whereType<xmllib.XmlElement>()) {
+      switch (child.localName) {
+        case 'tc':
+          final cellBuf = StringBuffer();
+          _walkDocxElement(child, cellBuf);
+          cells.add(cellBuf.toString().trim());
+
+        case 'sdt':
+          // SDT wrapping a table cell.
+          final content = child.children
+              .whereType<xmllib.XmlElement>()
+              .where((e) => e.localName == 'sdtContent')
+              .firstOrNull;
+          if (content != null) {
+            final tc = content.children
+                .whereType<xmllib.XmlElement>()
+                .where((e) => e.localName == 'tc')
+                .firstOrNull;
+            if (tc != null) {
+              final cellBuf = StringBuffer();
+              _walkDocxElement(tc, cellBuf);
+              cells.add(cellBuf.toString().trim());
+            }
+          }
+
+        default:
+          break; // skip trPr, bookmarkStart, etc.
+      }
+    }
+
+    if (cells.any((c) => c.isNotEmpty)) {
+      buf.writeln(cells.join('\t'));
     }
   }
 
@@ -266,6 +406,7 @@ class DocumentTextExtractorService {
     String fileName,
     String ext,
   ) async {
+    debugPrint('[Extractor] Branch: pdf');
     final bytes = await file.readAsBytes();
     final PdfDocument doc = PdfDocument(inputBytes: bytes);
 
@@ -278,14 +419,16 @@ class DocumentTextExtractorService {
     }
 
     final trimmed = text.trim();
+    debugPrint('[Extractor] PDF extracted chars: ${trimmed.length}');
 
     if (trimmed.isEmpty) {
+      debugPrint('[Extractor] PDF zero chars — likely scanned/image-based');
       return DocumentExtractionResult(
         fileName: fileName,
         filePath: file.path,
         extension: ext,
         extractedText: '',
-        success: true, // not a hard failure — let user paste manually
+        success: true,
         warningMessage:
             'This PDF may be scanned or image-based — no text could be extracted '
             'from "$fileName". Please paste the content manually into the field '
@@ -312,6 +455,7 @@ class DocumentTextExtractorService {
     String fileName,
     String ext,
   ) async {
+    debugPrint('[Extractor] Branch: csv');
     String raw;
     try {
       raw = await file.readAsString(encoding: utf8);
@@ -319,8 +463,6 @@ class DocumentTextExtractorService {
       raw = await file.readAsString(encoding: latin1);
     }
 
-    // Simple CSV → tab-separated conversion.
-    // Handles quoted fields with embedded commas.
     final lines = raw.split(RegExp(r'\r?\n'));
     final buf = StringBuffer();
 
@@ -330,11 +472,14 @@ class DocumentTextExtractorService {
       buf.writeln(cells.join('\t'));
     }
 
+    final text = buf.toString().trim();
+    debugPrint('[Extractor] CSV extracted chars: ${text.length}');
+
     return DocumentExtractionResult(
       fileName: fileName,
       filePath: file.path,
       extension: ext,
-      extractedText: buf.toString().trim(),
+      extractedText: text,
       success: true,
     );
   }
@@ -372,6 +517,7 @@ class DocumentTextExtractorService {
     String fileName,
     String ext,
   ) async {
+    debugPrint('[Extractor] Branch: xlsx');
     final bytes = await file.readAsBytes();
     final excel = xl.Excel.decodeBytes(bytes);
 
@@ -392,10 +538,11 @@ class DocumentTextExtractorService {
         }
       }
 
-      buf.writeln(); // blank line between sheets
+      buf.writeln();
     }
 
     final text = buf.toString().trim();
+    debugPrint('[Extractor] XLSX extracted chars: ${text.length}');
 
     return DocumentExtractionResult(
       fileName: fileName,

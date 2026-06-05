@@ -3,6 +3,18 @@ import '../../models/assessment.dart';
 import '../../models/submission.dart';
 
 class PromptBuilderService {
+  static String buildRetryPrompt({required String original}) {
+    return 'CRITICAL CORRECTION: Your previous response was not valid JSON.\n'
+        'THIS TIME you MUST return ONLY a raw JSON object. Strict requirements:\n'
+        '- The response MUST start with { and end with }\n'
+        '- Do NOT use markdown code fences (no backtick-json or backticks)\n'
+        '- Do NOT write any text, explanation, or comments before or after the JSON\n'
+        '- ALL JSON field names must be in English exactly as in the schema\n'
+        '- Do NOT translate any field names to Vietnamese or any other language\n'
+        '- Return exactly one question_result per assessment question\n\n'
+        '$original';
+  }
+
   static String buildGradingPrompt({
     required Assessment assessment,
     required Submission submission,
@@ -13,6 +25,8 @@ class PromptBuilderService {
         : "RUBRIC STRUCTURE (JSON)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n$rubricJson";
 
     return '''
+OUTPUT REQUIREMENT: You MUST return ONLY a single raw JSON object. The response must start with { and end with }. No markdown code fences. No text before or after the JSON. Any other format will be rejected.
+
 You are an academic grader for ${assessment.courseCode} — ${assessment.assessmentTitle}.
 
 Your task is to evaluate the student submission below using the provided exam questions, grading guide, and rubric structure. Grade strictly based on what is given — do not invent criteria.
@@ -44,12 +58,12 @@ GRADING INSTRUCTIONS
 2. If the student submission is written in Vietnamese, read and understand it directly. Do not translate or produce a separate translation output. Grade based on the rubric content requirements.
 3. Do not penalise for language (Vietnamese or English) unless the rubric explicitly requires English.
 4. Extract student_id and student_name from the file name if possible. Expected format: STUDENTID_FirstName_LastName.txt (e.g. SE001_Nguyen_Van_A.txt). If not parseable, use "N/A" for student_id and the raw filename for student_name.
-5. Return your response as a single JSON object ONLY. No markdown fences. No explanation outside the JSON.
+5. CRITICAL JSON OUTPUT RULE: Return ONLY a single raw JSON object. Do NOT use markdown code fences (no backtick-json or backticks). Do NOT write any explanation, preamble, or postamble outside the JSON. The response must begin with { and end with }. ALL JSON field names must be in English exactly as specified — do NOT translate field names to Vietnamese or any other language.
 6. Grade EXACTLY the questions listed in RUBRIC STRUCTURE — return one question_result per assessment question, in the same order. Do NOT invent new questions, split sub-criteria into separate question entries, or merge questions. Sub-criteria details in the grading guide are context only; they do not define the question count or scoring scale.
 7. For each question result: provide raw_score (integer, 0..max_raw_score from RUBRIC STRUCTURE) and a comment. Copy max_raw_score and max_converted_score exactly from RUBRIC STRUCTURE without modification — the app enforces these values and will override anything different. Do NOT invent or reduce denominators.
 8. Set total_raw_score = sum of all raw_score values. Set total_converted_score = sum of all converted_score values (round to 2 decimal places).
 ${_inferInstructions(assessment)}
-EXPECTED OUTPUT FORMAT:
+EXPECTED OUTPUT FORMAT (return this structure and nothing else):
 {
   "file_name": "string",
   "student_id": "string",
@@ -78,6 +92,8 @@ EXPECTED OUTPUT FORMAT:
   "total_converted_score": number,
   "final_comment": "string"
 }
+
+FINAL REMINDER: Return ONLY the JSON object above. Start with { and end with }. No markdown. No extra text.
 ''';
   }
 

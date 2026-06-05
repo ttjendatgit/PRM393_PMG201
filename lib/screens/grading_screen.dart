@@ -66,6 +66,7 @@ class GradingPage extends StatelessWidget {
     required this.assessment,
     required this.isGrading,
     this.status,
+    this.gradingError,
   });
 
   final Submission? submission;
@@ -77,6 +78,7 @@ class GradingPage extends StatelessWidget {
   final Assessment? assessment;
   final bool isGrading;
   final GradingStatus? status;
+  final String? gradingError;
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +180,7 @@ class GradingPage extends StatelessWidget {
           assessment: assessment,
           isGrading: isGrading,
           status: status,
+          gradingError: gradingError,
         ),
       ],
     );
@@ -199,6 +202,7 @@ class AiPanel extends StatefulWidget {
     required this.assessment,
     required this.isGrading,
     this.status,
+    this.gradingError,
   });
 
   final GradingResult? result;
@@ -209,6 +213,7 @@ class AiPanel extends StatefulWidget {
   final Assessment? assessment;
   final bool isGrading;
   final GradingStatus? status;
+  final String? gradingError;
 
   @override
   State<AiPanel> createState() => _AiPanelState();
@@ -407,6 +412,8 @@ class _AiPanelState extends State<AiPanel> {
   }
 
   Widget _buildPendingState() {
+    final isError = widget.status == GradingStatus.error;
+
     final providerName = switch (widget.aiMode) {
       AiMode.mock => 'Mock AI',
       AiMode.openRouter => 'OpenRouter AI',
@@ -423,16 +430,62 @@ class _AiPanelState extends State<AiPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          EmptyCard(
-            text: widget.aiMode == AiMode.mock
-                ? 'This submission has not been graded yet. Click Grade This File to run mock grading, or Grade All Files to grade all imported submissions.'
-                : 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is set in Settings, then grade.',
-          ),
+          if (isError) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.error.withValues(alpha: 0.35)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Grading failed for this file.',
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (widget.gradingError != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      widget.gradingError!,
+                      style: TextStyle(
+                        color: AppColors.error.withValues(alpha: 0.85),
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Text(
+                    'Click "Retry This File" to try again, or switch to a different AI provider in Settings.',
+                    style: TextStyle(
+                      color: AppColors.muted.withValues(alpha: 0.8),
+                      fontSize: 11,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            EmptyCard(
+              text: widget.aiMode == AiMode.mock
+                  ? 'This submission has not been graded yet. Click Grade This File to run mock grading, or Grade All Files to grade all imported submissions.'
+                  : 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is set in Settings, then grade.',
+            ),
+          ],
           const SizedBox(height: 16),
-          // Primary: grade this file only
+          // Primary: grade / retry this file
           FilledButton.icon(
             style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primaryContainer,
+              backgroundColor: isError
+                  ? AppColors.error.withValues(alpha: 0.18)
+                  : AppColors.primaryContainer,
               foregroundColor: AppColors.text,
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
@@ -449,14 +502,18 @@ class _AiPanelState extends State<AiPanel> {
                       color: AppColors.muted,
                     ),
                   )
-                : Icon(providerIcon),
+                : Icon(isError ? Icons.refresh_rounded : providerIcon),
             label: Text(
-              widget.isGrading ? 'Grading...' : 'Grade This File ($providerName)',
+              widget.isGrading
+                  ? 'Grading...'
+                  : isError
+                      ? 'Retry This File ($providerName)'
+                      : 'Grade This File ($providerName)',
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
           const SizedBox(height: 8),
-          // Secondary: grade all
+          // Secondary: grade all / retry all
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.muted,
