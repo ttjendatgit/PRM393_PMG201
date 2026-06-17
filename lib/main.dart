@@ -24,7 +24,8 @@ import 'theme/app_theme.dart';
 import 'widgets/side_nav.dart';
 import 'widgets/top_bar.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const PMGGradeAIApp());
 }
 

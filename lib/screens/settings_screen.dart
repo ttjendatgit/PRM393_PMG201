@@ -3,6 +3,10 @@ import '../models/ai_mode.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_frame.dart';
 import '../widgets/page_title.dart';
+import '../features/auth/models/login_request.dart';
+import '../features/auth/models/user_profile.dart';
+import '../features/auth/services/auth_service.dart';
+import '../core/network/api_exception.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -48,6 +52,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _geminiKeyController = TextEditingController();
   final _geminiModelController = TextEditingController();
 
+  // Backend connection test
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _backendLoading = false;
+  String? _backendStatus;
+  bool _backendIsError = false;
+  UserProfile? _loggedInUser;
+  bool _passwordVisible = false;
+
   bool _orObscure = true;
   bool _geminiObscure = true;
 
@@ -66,6 +79,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _orModelController.dispose();
     _geminiKeyController.dispose();
     _geminiModelController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -167,6 +182,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildGeminiSection(),
             const SizedBox(height: 24),
             _buildSecuritySection(),
+            const SizedBox(height: 24),
+            _buildBackendSection(),
           ],
         ),
       ),
@@ -578,6 +595,261 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // ── Backend connection test ────────────────────────────────────────────────
+
+  Future<void> _testLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() {
+        _backendStatus = 'Enter email and password first.';
+        _backendIsError = true;
+      });
+      return;
+    }
+    setState(() {
+      _backendLoading = true;
+      _backendStatus = null;
+      _backendIsError = false;
+      _loggedInUser = null;
+    });
+    try {
+      final profile = await AuthService.login(
+        LoginRequest(email: email, password: password),
+      );
+      setState(() {
+        _backendLoading = false;
+        _loggedInUser = profile;
+        _backendStatus = 'Logged in as ${profile.displayName}';
+        _backendIsError = false;
+      });
+    } on ApiException catch (e) {
+      setState(() {
+        _backendLoading = false;
+        _backendStatus = e.message;
+        _backendIsError = true;
+      });
+    } catch (e) {
+      setState(() {
+        _backendLoading = false;
+        _backendStatus = e.toString();
+        _backendIsError = true;
+      });
+    }
+  }
+
+  Future<void> _testGetProfile() async {
+    setState(() {
+      _backendLoading = true;
+      _backendStatus = null;
+      _backendIsError = false;
+    });
+    try {
+      final profile = await AuthService.me();
+      setState(() {
+        _backendLoading = false;
+        _loggedInUser = profile;
+        _backendStatus = 'Profile: ${profile.email}'
+            '${profile.fullName != null ? ' — ${profile.fullName}' : ''}'
+            '${profile.role != null ? ' [${profile.role}]' : ''}';
+        _backendIsError = false;
+      });
+    } on ApiException catch (e) {
+      setState(() {
+        _backendLoading = false;
+        _backendStatus = e.message;
+        _backendIsError = true;
+      });
+    } catch (e) {
+      setState(() {
+        _backendLoading = false;
+        _backendStatus = e.toString();
+        _backendIsError = true;
+      });
+    }
+  }
+
+  Future<void> _testLogout() async {
+    await AuthService.logout();
+    setState(() {
+      _loggedInUser = null;
+      _backendStatus = 'Logged out. Token cleared.';
+      _backendIsError = false;
+    });
+  }
+
+  Widget _buildBackendSection() {
+    return _SettingsCard(
+      title: 'BACKEND CONNECTION TEST',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Test the connection to the ASP.NET backend. '
+            'Backend must be running at the configured base URL.',
+            style: TextStyle(color: AppColors.muted, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _emailController,
+            style: const TextStyle(color: AppColors.text),
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              hintText: 'Email',
+              hintStyle: const TextStyle(color: AppColors.muted),
+              filled: true,
+              fillColor: AppColors.surfaceHigh,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _passwordController,
+            obscureText: !_passwordVisible,
+            style: const TextStyle(color: AppColors.text),
+            decoration: InputDecoration(
+              hintText: 'Password',
+              hintStyle: const TextStyle(color: AppColors.muted),
+              filled: true,
+              fillColor: AppColors.surfaceHigh,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _passwordVisible
+                      ? Icons.visibility_rounded
+                      : Icons.visibility_off_rounded,
+                  color: AppColors.muted,
+                ),
+                onPressed: () =>
+                    setState(() => _passwordVisible = !_passwordVisible),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryContainer,
+                  foregroundColor: AppColors.text,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _backendLoading ? null : _testLogin,
+                icon: _backendLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.login_rounded),
+                label: const Text('Test Login',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.text,
+                  side: const BorderSide(color: AppColors.outlineVariant),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _backendLoading ? null : _testGetProfile,
+                icon: const Icon(Icons.person_rounded),
+                label: const Text('GET /auth/me',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+              if (_loggedInUser != null)
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: BorderSide(color: AppColors.error.withAlpha(160)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: _testLogout,
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('Logout',
+                      style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+            ],
+          ),
+          if (_backendStatus != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: _backendIsError
+                    ? AppColors.error.withAlpha(30)
+                    : AppColors.primary.withAlpha(30),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _backendIsError
+                      ? AppColors.error.withAlpha(100)
+                      : AppColors.primary.withAlpha(100),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    _backendIsError
+                        ? Icons.error_outline_rounded
+                        : Icons.check_circle_outline_rounded,
+                    size: 16,
+                    color: _backendIsError ? AppColors.error : AppColors.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _backendStatus!,
+                      style: TextStyle(
+                        color: _backendIsError
+                            ? AppColors.error
+                            : AppColors.primary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
