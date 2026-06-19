@@ -15,6 +15,7 @@ class SubScoreResult {
 }
 
 class QuestionResult {
+  final String id;
   final String questionId;
   final String questionTitle;
   final double rawScore;
@@ -25,6 +26,7 @@ class QuestionResult {
   final List<SubScoreResult> subscores;
 
   QuestionResult({
+    this.id = '',
     required this.questionId,
     required this.questionTitle,
     required this.rawScore,
