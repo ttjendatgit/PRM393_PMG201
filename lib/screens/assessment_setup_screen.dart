@@ -42,6 +42,9 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
   bool _uploadingQuestion = false;
   bool _uploadingGuide = false;
 
+  String _extractedQuestionText = '';
+  String _extractedGuideText = '';
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +67,9 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
     _courseCodeController.text = a.courseCode;
     _examQuestionsController.text = a.examQuestionText;
     _gradingGuideController.text = a.gradingGuideText;
+
+    // Load extracted content from backend
+    _loadExtractedContent(a.assessmentId);
   }
 
   @override
@@ -118,10 +124,16 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       setState(() {
         _selectedAssessment = detail;
         _rubricItems = [];
+        // Clear old extracted content when switching assessment
+        _extractedQuestionText = '';
+        _extractedGuideText = '';
       });
 
       widget.onApplyAssessment(detail);
       _prefillFromAssessment(detail);
+
+      // Load extracted content
+      await _loadExtractedContent(assessment.assessmentId);
 
       // Automatically load rubric if it exists
       await _loadRubric();
@@ -129,6 +141,28 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       if (!mounted) return;
       setState(() => _selectedAssessment = assessment);
       widget.onApplyAssessment(assessment);
+    }
+  }
+
+  Future<void> _loadExtractedContent(String assessmentId) async {
+    try {
+      final questionData = await RubricApiService.getQuestion(assessmentId);
+      final guideData = await RubricApiService.getGuide(assessmentId);
+
+      if (!mounted) return;
+
+      setState(() {
+        _extractedQuestionText =
+            (questionData?['extractedText'] as String?) ?? '';
+        _extractedGuideText = (guideData?['extractedText'] as String?) ?? '';
+      });
+    } catch (e) {
+      // Silently fail and clear content - extracted content is optional
+      if (!mounted) return;
+      setState(() {
+        _extractedQuestionText = '';
+        _extractedGuideText = '';
+      });
     }
   }
 
@@ -152,9 +186,18 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
     });
 
     try {
-      await RubricApiService.uploadQuestionFile(assessmentId, path);
+      final response = await RubricApiService.uploadQuestionFile(
+        assessmentId,
+        path,
+      );
       if (!mounted) return;
-      setState(() => _uploadingQuestion = false);
+
+      final extractedText = response['extractedText'] as String? ?? '';
+
+      setState(() {
+        _uploadingQuestion = false;
+        _extractedQuestionText = extractedText;
+      });
       _showSnack('Question file uploaded successfully.');
     } catch (e) {
       if (!mounted) return;
@@ -183,9 +226,18 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
     });
 
     try {
-      await RubricApiService.uploadGuideFile(assessmentId, path);
+      final response = await RubricApiService.uploadGuideFile(
+        assessmentId,
+        path,
+      );
       if (!mounted) return;
-      setState(() => _uploadingGuide = false);
+
+      final extractedText = response['extractedText'] as String? ?? '';
+
+      setState(() {
+        _uploadingGuide = false;
+        _extractedGuideText = extractedText;
+      });
       _showSnack('Guide file uploaded successfully.');
     } catch (e) {
       if (!mounted) return;
@@ -265,9 +317,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.error,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete'),
           ),
@@ -321,9 +371,18 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                 _DetailRow('Course Code', detail.courseCode),
                 _DetailRow('ID', detail.assessmentId),
                 _DetailRow('Raw Score', '/${detail.totalRawScore.toInt()}'),
-                _DetailRow('Converted Score', '/${detail.totalConvertedScore.toInt()}'),
-                _DetailRow('Status', detail.status.isNotEmpty ? detail.status : 'Active'),
-                _DetailRow('Created', detail.createdAt.toString().split('.')[0]),
+                _DetailRow(
+                  'Converted Score',
+                  '/${detail.totalConvertedScore.toInt()}',
+                ),
+                _DetailRow(
+                  'Status',
+                  detail.status.isNotEmpty ? detail.status : 'Active',
+                ),
+                _DetailRow(
+                  'Created',
+                  detail.createdAt.toString().split('.')[0],
+                ),
                 if (detail.questions.isNotEmpty) ...[
                   const Padding(
                     padding: EdgeInsets.only(top: 12, bottom: 8),
@@ -356,12 +415,18 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
   }
 
   Future<void> _editAssessment(Assessment assessment) async {
-    final titleController = TextEditingController(text: assessment.assessmentTitle);
-    final courseCodeController = TextEditingController(text: assessment.courseCode);
-    final descriptionController = TextEditingController(text: assessment.examQuestionText);
+    final titleController = TextEditingController(
+      text: assessment.assessmentTitle,
+    );
+    final courseCodeController = TextEditingController(
+      text: assessment.courseCode,
+    );
+    final descriptionController = TextEditingController(
+      text: assessment.examQuestionText,
+    );
 
     if (!mounted) return;
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -383,7 +448,10 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -399,7 +467,10 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -416,7 +487,10 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
             ],
@@ -430,12 +504,15 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
           FilledButton(
             onPressed: () async {
               Navigator.pop(context);
-              
+
               final title = titleController.text.trim();
               final courseCode = courseCodeController.text.trim();
-              
+
               if (title.isEmpty || courseCode.isEmpty) {
-                _showSnack('Title and Course Code are required.', isError: true);
+                _showSnack(
+                  'Title and Course Code are required.',
+                  isError: true,
+                );
                 return;
               }
 
@@ -453,11 +530,14 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
 
                 if (!mounted) return;
 
-                final idx = _assessments.indexWhere((a) => a.assessmentId == assessment.assessmentId);
+                final idx = _assessments.indexWhere(
+                  (a) => a.assessmentId == assessment.assessmentId,
+                );
                 if (idx >= 0) {
                   setState(() {
                     _assessments[idx] = updated;
-                    if (_selectedAssessment?.assessmentId == assessment.assessmentId) {
+                    if (_selectedAssessment?.assessmentId ==
+                        assessment.assessmentId) {
                       _selectedAssessment = updated;
                     }
                   });
@@ -479,8 +559,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
     final a = _selectedAssessment;
     if (a == null) return;
 
-    final totalRaw =
-        items.fold<double>(0, (sum, q) => sum + q.rawMaxScore);
+    final totalRaw = items.fold<double>(0, (sum, q) => sum + q.rawMaxScore);
 
     final updated = Assessment(
       assessmentId: a.assessmentId,
@@ -529,7 +608,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
         'courseCode': courseCode,
         'description': _examQuestionsController.text.trim(),
       };
-      
+
       final created = await AssessmentApiService.createAssessment(body);
       if (!mounted) return;
 
@@ -540,14 +619,15 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       });
 
       widget.onApplyAssessment(created);
-      _showSnack('Assessment created successfully. You can now upload files and parse rubric.');
-      
+      _showSnack(
+        'Assessment created successfully. You can now upload files and parse rubric.',
+      );
+
       // Clear controllers after successful creation
       _titleController.clear();
       _courseCodeController.clear();
       _examQuestionsController.clear();
       _gradingGuideController.clear();
-      
     } catch (e) {
       _showSnack('Create failed: $e', isError: true);
     }
@@ -555,13 +635,16 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
 
   // ── Snack helper ───────────────────────────────────────────────────────────────
 
-  void _showSnack(String message, {bool isError = false, Color? backgroundColor}) {
+  void _showSnack(
+    String message, {
+    bool isError = false,
+    Color? backgroundColor,
+  }) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor:
-            backgroundColor ?? (isError ? AppColors.error : null),
+        backgroundColor: backgroundColor ?? (isError ? AppColors.error : null),
         duration: Duration(seconds: isError ? 5 : 3),
       ),
     );
@@ -585,7 +668,6 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
             badge: current != null
                 ? '${current.courseCode} — ${current.assessmentTitle}'
                 : 'No assessment loaded',
-            button: 'Load Sample',
             onPressed: _loadSample,
           ),
           const SizedBox(height: 24),
@@ -601,12 +683,8 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                   // ── Backend section ─────────────────────────────────────
                   _buildBackendSection(),
                   const SizedBox(height: 28),
-                  _buildDivider('Or use local sample / custom assessment'),
-                  const SizedBox(height: 20),
 
-                  _buildSampleCard(),
-                  const SizedBox(height: 28),
-                  _buildDivider('Or create assessment by filling form below'),
+                  // ── Create custom assessment ────────────────────────────────
                   const SizedBox(height: 24),
                   _buildFormRow(
                     label: 'Assessment Title',
@@ -674,8 +752,11 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.cloud_done_rounded,
-                  color: AppColors.primary, size: 20),
+              const Icon(
+                Icons.cloud_done_rounded,
+                color: AppColors.primary,
+                size: 20,
+              ),
               const SizedBox(width: 10),
               const Text(
                 'Assessments from Backend',
@@ -732,7 +813,8 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
               ),
             ),
             ...(_assessments.map((a) {
-              final isSelected = _selectedAssessment?.assessmentId == a.assessmentId;
+              final isSelected =
+                  _selectedAssessment?.assessmentId == a.assessmentId;
               return Container(
                 margin: const EdgeInsets.only(bottom: 10),
                 decoration: BoxDecoration(
@@ -758,7 +840,9 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                         ? AppColors.primary
                         : AppColors.primary.withAlpha(50),
                     child: Icon(
-                      isSelected ? Icons.check_rounded : Icons.description_rounded,
+                      isSelected
+                          ? Icons.check_rounded
+                          : Icons.description_rounded,
                       color: isSelected ? Colors.white : AppColors.primary,
                       size: 18,
                     ),
@@ -789,7 +873,11 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                         value: 'edit',
                         child: Row(
                           children: [
-                            Icon(Icons.edit_rounded, size: 18, color: AppColors.primary),
+                            Icon(
+                              Icons.edit_rounded,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
                             SizedBox(width: 10),
                             Text('Edit'),
                           ],
@@ -799,9 +887,16 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
                         value: 'delete',
                         child: Row(
                           children: [
-                            Icon(Icons.delete_rounded, size: 18, color: AppColors.error),
+                            Icon(
+                              Icons.delete_rounded,
+                              size: 18,
+                              color: AppColors.error,
+                            ),
                             SizedBox(width: 10),
-                            Text('Delete', style: TextStyle(color: AppColors.error)),
+                            Text(
+                              'Delete',
+                              style: TextStyle(color: AppColors.error),
+                            ),
                           ],
                         ),
                       ),
@@ -859,6 +954,135 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
             ),
 
             const SizedBox(height: 16),
+
+            // Extracted text display
+            if (_extractedQuestionText.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainer,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.outlineVariant),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.description_rounded,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Extracted Question Content',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${_extractedQuestionText.length} chars',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceHigh,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: SingleChildScrollView(
+                        child: Text(
+                          _extractedQuestionText,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+
+            if (_extractedGuideText.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceContainer,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.outlineVariant),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.menu_book_rounded,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Extracted Guide Content',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${_extractedGuideText.length} chars',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceHigh,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: SingleChildScrollView(
+                        child: Text(
+                          _extractedGuideText,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
           ],
 
           // Rubric items display
@@ -879,7 +1103,9 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
               return Container(
                 margin: const EdgeInsets.only(bottom: 6),
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.surfaceContainer,
                   borderRadius: BorderRadius.circular(8),
@@ -958,12 +1184,12 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       style: OutlinedButton.styleFrom(
         foregroundColor: AppColors.primary,
         side: BorderSide(
-          color: uploading ? AppColors.primary.withAlpha(80) : AppColors.primary,
+          color: uploading
+              ? AppColors.primary.withAlpha(80)
+              : AppColors.primary,
         ),
         padding: const EdgeInsets.symmetric(vertical: 10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       onPressed: uploading ? null : onPressed,
       icon: uploading
@@ -1000,8 +1226,11 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.check_circle_rounded,
-                  color: AppColors.primary, size: 16),
+              const Icon(
+                Icons.check_circle_rounded,
+                color: AppColors.primary,
+                size: 16,
+              ),
               const SizedBox(width: 8),
               const Text(
                 'ACTIVE ASSESSMENT',
@@ -1014,8 +1243,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
               ),
               const Spacer(),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: sourceColor.withAlpha(30),
                   border: Border.all(color: sourceColor.withAlpha(100)),
@@ -1041,98 +1269,21 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
               _SummaryItem(label: 'Course', value: a.courseCode),
               _SummaryItem(label: 'Title', value: a.assessmentTitle),
               _SummaryItem(
-                  label: 'Raw Total',
-                  value: '/${a.totalRawScore.toInt()}'),
-              _SummaryItem(
-                  label: 'Converted',
-                  value: '/${a.totalConvertedScore % 1 == 0 ? a.totalConvertedScore.toInt() : a.totalConvertedScore}'),
-              _SummaryItem(
-                  label: 'Rubric Items',
-                  value: a.questions.isEmpty
-                      ? 'Dynamic (AI)'
-                      : '${a.questions.length} questions'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSampleCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainer,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.auto_awesome_rounded,
-                color: AppColors.primary,
-                size: 20,
+                label: 'Raw Total',
+                value: '/${a.totalRawScore.toInt()}',
               ),
-              const SizedBox(width: 10),
-              const Text(
-                'PMG201c PE2 — Quick Load',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
+              _SummaryItem(
+                label: 'Converted',
+                value:
+                    '/${a.totalConvertedScore % 1 == 0 ? a.totalConvertedScore.toInt() : a.totalConvertedScore}',
               ),
-              const Spacer(),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceHigh,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.outlineVariant),
-                ),
-                child: const Text(
-                  'SAMPLE',
-                  style: TextStyle(
-                    color: AppColors.muted,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.1,
-                  ),
-                ),
+              _SummaryItem(
+                label: 'Rubric Items',
+                value: a.questions.isEmpty
+                    ? 'Dynamic (AI)'
+                    : '${a.questions.length} questions',
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Loads a pre-built rubric for PMG201c Practical Exam 2 '
-            '(Q1 Project Charter 20pts, Q2 Cost/Budget 20pts, '
-            'Q3 Risk Register 30pts, Q4 RACI Matrix 30pts → total /10).',
-            style: TextStyle(color: AppColors.muted, height: 1.45),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                side: const BorderSide(color: AppColors.primary),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: _loadSample,
-              icon: const Icon(Icons.download_rounded),
-              label: const Text(
-                'Use PMG201c PE2 Sample',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
           ),
         ],
       ),
@@ -1298,8 +1449,10 @@ class PageHeaderWithAction extends StatelessWidget {
             const SizedBox(width: 16),
             if (badge != null)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withAlpha(25),
                   borderRadius: BorderRadius.circular(8),
