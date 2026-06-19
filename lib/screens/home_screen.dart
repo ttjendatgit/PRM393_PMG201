@@ -33,6 +33,12 @@ class HomePage extends StatelessWidget {
   final VoidCallback onGradeAll;
   final ValueChanged<int> onSelectSubmission;
 
+  bool get _isBackendMode => aiMode == AiMode.backend;
+
+  String _statusKey(Submission s) => _isBackendMode ? s.id : s.fileName;
+
+  String _resultMatchKey(GradingResult r) => _isBackendMode ? r.submissionId : r.fileName;
+
   @override
   Widget build(BuildContext context) {
     return PageFrame(
@@ -62,6 +68,7 @@ class HomePage extends StatelessWidget {
                     submissions: submissions,
                     results: results,
                     statuses: statuses,
+                    aiMode: aiMode,
                     onTap: onSelectSubmission,
                   ),
                 ),
@@ -89,17 +96,25 @@ class _SubmissionsPanel extends StatelessWidget {
     required this.submissions,
     required this.results,
     required this.statuses,
+    required this.aiMode,
     required this.onTap,
   });
 
   final List<Submission> submissions;
   final List<GradingResult> results;
   final Map<String, GradingStatus> statuses;
+  final AiMode aiMode;
   final ValueChanged<int> onTap;
 
-  GradingResult? _findResult(String fileName) {
+  bool get _isBackendMode => aiMode == AiMode.backend;
+
+  String _key(Submission s) => _isBackendMode ? s.id : s.fileName;
+
+  GradingResult? _findResult(Submission s) {
+    final matchKey = _key(s);
     for (final r in results) {
-      if (r.fileName == fileName) return r;
+      final rKey = _isBackendMode ? r.submissionId : r.fileName;
+      if (rKey == matchKey) return r;
     }
     return null;
   }
@@ -124,8 +139,8 @@ class _SubmissionsPanel extends StatelessWidget {
               itemCount: submissions.length,
               itemBuilder: (context, index) {
                 final item = submissions[index];
-                final status = statuses[item.fileName] ?? GradingStatus.pending;
-                final result = _findResult(item.fileName);
+                final status = statuses[_key(item)] ?? GradingStatus.pending;
+                final result = _findResult(item);
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14),
@@ -253,6 +268,7 @@ class _UploadZone extends StatelessWidget {
       AiMode.mock => 'Grade with Mock AI',
       AiMode.openRouter => 'Grade with OpenRouter AI',
       AiMode.gemini => 'Grade with Gemini AI',
+      AiMode.backend => 'Grade via Backend',
     };
   }
 
@@ -260,12 +276,14 @@ class _UploadZone extends StatelessWidget {
     AiMode.mock => Icons.science_rounded,
     AiMode.openRouter => Icons.hub_rounded,
     AiMode.gemini => Icons.auto_awesome_rounded,
+    AiMode.backend => Icons.cloud_rounded,
   };
 
   String get _providerFooter => switch (aiMode) {
     AiMode.mock => 'SUPPORTED: .TXT, .MD, .DOCX, .PDF, .CSV, .XLSX  |  MOCK AI MODE',
     AiMode.openRouter => 'SUPPORTED: .TXT, .MD, .DOCX, .PDF, .CSV, .XLSX  |  OPENROUTER AI',
     AiMode.gemini => 'SUPPORTED: .TXT, .MD, .DOCX, .PDF, .CSV, .XLSX  |  GEMINI AI',
+    AiMode.backend => 'SUPPORTED: .TXT, .MD, .DOCX  |  BACKEND API MODE',
   };
 
   @override

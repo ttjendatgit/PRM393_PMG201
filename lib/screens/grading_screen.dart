@@ -67,6 +67,7 @@ class GradingPage extends StatelessWidget {
     required this.isGrading,
     this.status,
     this.gradingError,
+    this.onFinalize,
   });
 
   final Submission? submission;
@@ -74,6 +75,7 @@ class GradingPage extends StatelessWidget {
   final VoidCallback onGradeAll;
   final VoidCallback onGradeCurrent;
   final ValueChanged<GradingResult> onSaveReview;
+  final ValueChanged<String>? onFinalize;
   final AiMode aiMode;
   final Assessment? assessment;
   final bool isGrading;
@@ -176,6 +178,7 @@ class GradingPage extends StatelessWidget {
           onGradeAll: onGradeAll,
           onGradeCurrent: onGradeCurrent,
           onSaveReview: onSaveReview,
+          onFinalize: onFinalize,
           aiMode: aiMode,
           assessment: assessment,
           isGrading: isGrading,
@@ -203,12 +206,14 @@ class AiPanel extends StatefulWidget {
     required this.isGrading,
     this.status,
     this.gradingError,
+    this.onFinalize,
   });
 
   final GradingResult? result;
   final VoidCallback onGradeAll;
   final VoidCallback onGradeCurrent;
   final ValueChanged<GradingResult> onSaveReview;
+  final ValueChanged<String>? onFinalize;
   final AiMode aiMode;
   final Assessment? assessment;
   final bool isGrading;
@@ -392,6 +397,7 @@ class _AiPanelState extends State<AiPanel> {
               AiMode.openRouter => Icons.hub_rounded,
               AiMode.gemini => Icons.auto_awesome_rounded,
               AiMode.mock => Icons.science_rounded,
+              AiMode.backend => Icons.cloud_rounded,
             },
             color: AppColors.primary,
           ),
@@ -418,11 +424,13 @@ class _AiPanelState extends State<AiPanel> {
       AiMode.mock => 'Mock AI',
       AiMode.openRouter => 'OpenRouter AI',
       AiMode.gemini => 'Gemini AI',
+      AiMode.backend => 'Backend AI',
     };
     final providerIcon = switch (widget.aiMode) {
       AiMode.mock => Icons.science_rounded,
       AiMode.openRouter => Icons.hub_rounded,
       AiMode.gemini => Icons.auto_awesome_rounded,
+      AiMode.backend => Icons.cloud_rounded,
     };
 
     return Padding(
@@ -476,7 +484,9 @@ class _AiPanelState extends State<AiPanel> {
             EmptyCard(
               text: widget.aiMode == AiMode.mock
                   ? 'This submission has not been graded yet. Click Grade This File to run mock grading, or Grade All Files to grade all imported submissions.'
-                  : 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is set in Settings, then grade.',
+                  : widget.aiMode == AiMode.backend
+                      ? 'This submission has not been graded yet. Click Grade This File to grade via backend, or Grade All Files to start a grading job.'
+                      : 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is set in Settings, then grade.',
             ),
           ],
           const SizedBox(height: 16),
@@ -594,6 +604,31 @@ class _AiPanelState extends State<AiPanel> {
             ),
           ),
         ),
+        if (widget.onFinalize != null) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () {
+                final id = widget.result?.id ?? '';
+                if (id.isNotEmpty) widget.onFinalize?.call(id);
+              },
+              icon: const Icon(Icons.lock_rounded),
+              label: const Text(
+                'Finalize Result',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

@@ -23,6 +23,8 @@ class SettingsScreen extends StatefulWidget {
     required this.onClearGeminiApiKey,
     required this.onSaveGeminiModelId,
     required this.onChangeAiMode,
+    this.backendAssessmentId,
+    this.onSetBackendAssessmentId,
   });
 
   // OpenRouter
@@ -41,6 +43,10 @@ class SettingsScreen extends StatefulWidget {
 
   final AiMode aiMode;
   final ValueChanged<AiMode> onChangeAiMode;
+
+  // Backend
+  final String? backendAssessmentId;
+  final ValueChanged<String>? onSetBackendAssessmentId;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -81,6 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _geminiModelController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _backendAssessmentIdController.dispose();
     super.dispose();
   }
 
@@ -175,6 +182,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 32),
             _buildAiModeSection(),
             const SizedBox(height: 24),
+            if (widget.aiMode == AiMode.backend) ...[
+              _buildBackendAssessmentIdSection(),
+              const SizedBox(height: 24),
+            ],
             _buildOrKeySection(),
             const SizedBox(height: 24),
             _buildOrModelSection(),
@@ -222,6 +233,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: Text('Gemini'),
                 icon: Icon(Icons.auto_awesome_rounded),
               ),
+              ButtonSegment(
+                value: AiMode.backend,
+                label: Text('Backend'),
+                icon: Icon(Icons.cloud_rounded),
+              ),
             ],
             selected: {widget.aiMode},
             onSelectionChanged: (Set<AiMode> selected) {
@@ -254,6 +270,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Calls Google Gemini directly. Free tier available with a Google AI Studio key (AIza...). '
                 'Same rubric-based grading. Supports Vietnamese and English submissions.',
             active: widget.aiMode == AiMode.gemini,
+          ),
+          const SizedBox(height: 8),
+          _ModeInfoRow(
+            icon: Icons.cloud_rounded,
+            label: 'Backend API',
+            description:
+                'Connects to the ASP.NET backend API. '
+                'All grading is done server-side. Requires a running backend and a valid assessment ID. '
+                'Login first via the Backend Connection Test below.',
+            active: widget.aiMode == AiMode.backend,
           ),
         ],
       ),
@@ -850,6 +876,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  // ── Backend assessment ID ──────────────────────────────────────────────────
+
+  final _backendAssessmentIdController = TextEditingController();
+
+  void _saveBackendAssessmentId() {
+    final id = _backendAssessmentIdController.text.trim();
+    widget.onSetBackendAssessmentId?.call(id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(id.isEmpty
+            ? 'Backend assessment ID cleared.'
+            : 'Backend assessment ID set: $id'),
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
+  Widget _buildBackendAssessmentIdSection() {
+    if (_backendAssessmentIdController.text.isEmpty &&
+        widget.backendAssessmentId != null) {
+      _backendAssessmentIdController.text = widget.backendAssessmentId!;
+    }
+
+    return _SettingsCard(
+      title: 'BACKEND ASSESSMENT ID',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Enter the GUID of an existing assessment on the ASP.NET backend. '
+            'All submission uploads, grading, review, and export will use this assessment.',
+            style: TextStyle(color: AppColors.muted, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _backendAssessmentIdController,
+            style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
+            decoration: InputDecoration(
+              hintText: 'e.g. 3fa85f64-5717-4562-b3fc-2c963f66afa6',
+              hintStyle: const TextStyle(color: AppColors.muted, fontSize: 12),
+              filled: true,
+              fillColor: AppColors.surfaceHigh,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.outlineVariant),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primaryContainer,
+              foregroundColor: AppColors.text,
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: _saveBackendAssessmentId,
+            icon: const Icon(Icons.save_rounded),
+            label: const Text('Save Assessment ID',
+                style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
         ],
       ),
     );
