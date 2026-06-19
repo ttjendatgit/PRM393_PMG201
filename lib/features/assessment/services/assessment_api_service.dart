@@ -1,4 +1,5 @@
 import '../../../core/network/api_client.dart';
+import '../../../models/assessment.dart';
 
 /// CRUD operations for assessments.
 ///
@@ -11,37 +12,48 @@ import '../../../core/network/api_client.dart';
 class AssessmentApiService {
   AssessmentApiService._();
 
-  static Future<List<dynamic>> getAssessments() async {
-    // TODO: implement — parse response into Assessment models
+  /// Fetches all assessments for the current teacher.
+  ///
+  /// Returns a list of [Assessment] models mapped from BE [AssessmentResponse].
+  /// BE returns: [{ id, title, courseCode, description, totalRawScore, totalConvertedScore, status, createdAt, updatedAt }, ...]
+  static Future<List<Assessment>> getAssessments() async {
     final data = await ApiClient.get('/api/assessments');
-    return data as List<dynamic>;
+    final list = data as List<dynamic>;
+    return list
+        .map((e) => Assessment.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
-  static Future<Map<String, dynamic>> createAssessment(
+  /// Creates a new assessment.
+  ///
+  /// [body] should contain: { title, courseCode?, description? }
+  /// Returns the created [Assessment] with server-generated ID.
+  static Future<Assessment> createAssessment(
     Map<String, dynamic> body,
   ) async {
-    // TODO: implement — map body to CreateAssessmentRequest model
     final data = await ApiClient.post('/api/assessments', body: body);
-    return data as Map<String, dynamic>;
+    return Assessment.fromJson(data as Map<String, dynamic>);
   }
 
-  static Future<Map<String, dynamic>> getAssessment(String id) async {
-    // TODO: implement — return typed Assessment model
+  /// Fetches a single assessment by [id].
+  static Future<Assessment?> getAssessment(String id) async {
     final data = await ApiClient.get('/api/assessments/$id');
-    return data as Map<String, dynamic>;
+    return Assessment.fromJson(data as Map<String, dynamic>);
   }
 
-  static Future<Map<String, dynamic>> updateAssessment(
+  /// Updates an existing assessment.
+  ///
+  /// [body] may contain: { title?, courseCode?, description? }
+  static Future<Assessment> updateAssessment(
     String id,
     Map<String, dynamic> body,
   ) async {
-    // TODO: implement
     final data = await ApiClient.put('/api/assessments/$id', body: body);
-    return data as Map<String, dynamic>;
+    return Assessment.fromJson(data as Map<String, dynamic>);
   }
 
+  /// Deletes an assessment by [id].
   static Future<void> deleteAssessment(String id) async {
-    // TODO: implement
     await ApiClient.delete('/api/assessments/$id');
   }
 }
