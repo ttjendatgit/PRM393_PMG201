@@ -42,6 +42,8 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
   bool _uploadingQuestion = false;
   bool _uploadingGuide = false;
 
+  bool _guideUploaded = false;
+
   String _extractedQuestionText = '';
   String _extractedGuideText = '';
 
@@ -124,7 +126,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       setState(() {
         _selectedAssessment = detail;
         _rubricItems = [];
-        // Clear old extracted content when switching assessment
+        _guideUploaded = false;
         _extractedQuestionText = '';
         _extractedGuideText = '';
       });
@@ -152,6 +154,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       if (!mounted) return;
 
       setState(() {
+        _guideUploaded = guideData != null;
         _extractedQuestionText =
             (questionData?['extractedText'] as String?) ?? '';
         _extractedGuideText = (guideData?['extractedText'] as String?) ?? '';
@@ -160,6 +163,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       // Silently fail and clear content - extracted content is optional
       if (!mounted) return;
       setState(() {
+        _guideUploaded = false;
         _extractedQuestionText = '';
         _extractedGuideText = '';
       });
@@ -236,6 +240,7 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
 
       setState(() {
         _uploadingGuide = false;
+        _guideUploaded = true;
         _extractedGuideText = extractedText;
       });
       _showSnack('Guide file uploaded successfully.');
@@ -253,19 +258,29 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       return;
     }
 
+    // Guard: the grading guide must be uploaded before the backend can parse it.
+    if (!_guideUploaded) {
+      _showSnack(
+        'Please upload the grading guide before parsing the rubric.',
+        isError: true,
+      );
+      return;
+    }
+
     setState(() {
       _parsingRubric = true;
       _rubricItems = [];
     });
 
     try {
-      final rawList = await RubricApiService.parseRubric(assessmentId);
+      // Step 1: Trigger backend rubric extraction from the uploaded guide.
+      // The POST response body may be empty — we do not rely on it.
+      await RubricApiService.parseRubric(assessmentId);
       if (!mounted) return;
 
-      // Parse the raw response into QuestionRubric models
-      final items = rawList
-          .map((e) => QuestionRubric.fromJson(e as Map<String, dynamic>))
-          .toList();
+      // Step 2: Fetch the structured rubric items stored by the backend.
+      final items = await RubricApiService.getRubric(assessmentId);
+      if (!mounted) return;
 
       setState(() {
         _rubricItems = items;
@@ -273,13 +288,14 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
       });
 
       if (items.isEmpty) {
-        _showSnack('No rubric items could be parsed.');
-      } else {
-        // Build an Assessment with rubric items and apply it
-        _applyRubricToAssessment(items);
         _showSnack(
-          'Rubric parsed: ${items.length} item(s) (Q1–Q${items.length}).',
+          'No rubric items were returned by the backend. '
+          'Check that the grading guide uses a supported format.',
+          isError: true,
         );
+      } else {
+        _applyRubricToAssessment(items);
+        _showSnack('Rubric parsed: ${items.length} question(s) loaded.');
       }
     } catch (e) {
       if (!mounted) return;
@@ -1287,22 +1303,6 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildDivider(String label) {
-    return Row(
-      children: [
-        const Expanded(child: Divider(color: AppColors.outlineVariant)),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            label,
-            style: const TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
-        ),
-        const Expanded(child: Divider(color: AppColors.outlineVariant)),
-      ],
     );
   }
 

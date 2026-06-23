@@ -33,12 +33,6 @@ class HomePage extends StatelessWidget {
   final VoidCallback onGradeAll;
   final ValueChanged<int> onSelectSubmission;
 
-  bool get _isBackendMode => aiMode == AiMode.backend;
-
-  String _statusKey(Submission s) => _isBackendMode ? s.id : s.fileName;
-
-  String _resultMatchKey(GradingResult r) => _isBackendMode ? r.submissionId : r.fileName;
-
   @override
   Widget build(BuildContext context) {
     return PageFrame(
@@ -286,6 +280,12 @@ class _UploadZone extends StatelessWidget {
     AiMode.backend => 'SUPPORTED: .TXT, .MD, .DOCX  |  BACKEND API MODE',
   };
 
+  String get _description => aiMode == AiMode.backend
+      ? 'Upload student submissions (.txt, .md, .docx) for the selected assessment. '
+          'Select an assessment first in Assessment Setup, then upload and grade via backend.'
+      : 'Select submission files (.txt, .md, .docx, .pdf, .csv, .xlsx). '
+          'Load an assessment rubric in Assessment Setup, then grade with Mock AI, OpenRouter AI, or Gemini AI.';
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -329,12 +329,12 @@ class _UploadZone extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  const SizedBox(
+                  SizedBox(
                     width: 520,
                     child: Text(
-                      'Select submission files (.txt, .md, .docx, .pdf, .csv, .xlsx). Load an assessment rubric in Assessment Setup, then grade with Mock AI, OpenRouter AI, or Gemini AI.',
+                      _description,
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.muted, height: 1.5),
+                      style: const TextStyle(color: AppColors.muted, height: 1.5),
                     ),
                   ),
                   const SizedBox(height: 28),

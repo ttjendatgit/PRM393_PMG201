@@ -4,6 +4,7 @@ import '../models/assessment.dart';
 import '../models/grading_result.dart';
 import '../models/grading_status.dart';
 import '../models/question_result.dart';
+import '../models/rubric.dart';
 import '../models/submission.dart';
 import '../theme/app_colors.dart';
 import '../widgets/empty_card.dart';
@@ -68,6 +69,8 @@ class GradingPage extends StatelessWidget {
     this.status,
     this.gradingError,
     this.onFinalize,
+    this.onNextSubmission,
+    this.isContentLoading = false,
   });
 
   final Submission? submission;
@@ -76,6 +79,8 @@ class GradingPage extends StatelessWidget {
   final VoidCallback onGradeCurrent;
   final ValueChanged<GradingResult> onSaveReview;
   final ValueChanged<String>? onFinalize;
+  final VoidCallback? onNextSubmission;
+  final bool isContentLoading;
   final AiMode aiMode;
   final Assessment? assessment;
   final bool isGrading;
@@ -106,70 +111,11 @@ class GradingPage extends StatelessWidget {
 
     return Row(
       children: [
-        // Left pane — submission content
+        // Left pane — full submission content
         Expanded(
-          child: Container(
-            color: const Color(0xFF060E20),
-            child: Column(
-              children: [
-                Container(
-                  height: 52,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  decoration: const BoxDecoration(
-                    color: AppColors.surfaceContainer,
-                    border: Border(
-                      bottom: BorderSide(color: AppColors.outlineVariant),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.description_rounded,
-                        color: AppColors.muted,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        submission!.fileName,
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(36),
-                    child: Container(
-                      width: 760,
-                      padding: const EdgeInsets.all(44),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceLow,
-                        border: Border.all(color: AppColors.outlineVariant),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black54,
-                            blurRadius: 18,
-                            offset: Offset(0, 12),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        submission!.content,
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          height: 1.65,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          child: _SubmissionPanel(
+            submission: submission!,
+            isContentLoading: isContentLoading,
           ),
         ),
         // Right pane — AI analysis + review
@@ -179,6 +125,7 @@ class GradingPage extends StatelessWidget {
           onGradeCurrent: onGradeCurrent,
           onSaveReview: onSaveReview,
           onFinalize: onFinalize,
+          onNextSubmission: onNextSubmission,
           aiMode: aiMode,
           assessment: assessment,
           isGrading: isGrading,
@@ -207,6 +154,7 @@ class AiPanel extends StatefulWidget {
     this.status,
     this.gradingError,
     this.onFinalize,
+    this.onNextSubmission,
   });
 
   final GradingResult? result;
@@ -214,6 +162,7 @@ class AiPanel extends StatefulWidget {
   final VoidCallback onGradeCurrent;
   final ValueChanged<GradingResult> onSaveReview;
   final ValueChanged<String>? onFinalize;
+  final VoidCallback? onNextSubmission;
   final AiMode aiMode;
   final Assessment? assessment;
   final bool isGrading;
@@ -257,12 +206,37 @@ class _AiPanelState extends State<AiPanel> {
 
     final qrs = widget.result?.questionResults;
     if (qrs != null) {
-      for (final qr in qrs) {
+      final rubricItems = widget.assessment?.questions ?? const <QuestionRubric>[];
+
+      for (int qi = 0; qi < qrs.length; qi++) {
+        final qr = qrs[qi];
+
+        double maxRaw = qr.maxRawScore;
+        double maxConv = qr.maxConvertedScore;
+
+        // P0-C fallback: if the backend didn't return max scores, derive them
+        // from the active assessment rubric so scores are never clamped to 0.
+        if (maxRaw == 0 && rubricItems.isNotEmpty) {
+          QuestionRubric? match;
+          // 1. Try to match by title
+          for (final r in rubricItems) {
+            if (r.title == qr.questionTitle) { match = r; break; }
+          }
+          // 2. Positional fallback
+          if (match == null && qi < rubricItems.length) {
+            match = rubricItems[qi];
+          }
+          if (match != null && match.rawMaxScore > 0) {
+            maxRaw = match.rawMaxScore;
+            maxConv = match.convertedMaxScore;
+          }
+        }
+
         _editStates.add(_QuestionEditState(
           questionId: qr.questionId,
           questionTitle: qr.questionTitle,
-          maxRawScore: qr.maxRawScore,
-          maxConvertedScore: qr.maxConvertedScore,
+          maxRawScore: maxRaw,
+          maxConvertedScore: maxConv,
           initialRaw: qr.rawScore,
         ));
         _rawControllers.add(
@@ -274,7 +248,11 @@ class _AiPanelState extends State<AiPanel> {
       }
     }
 
-    _reviewerNoteController.text = widget.result?.reviewerNote ?? '';
+    // Prefer teacherOverallComment from backend; fall back to local reviewerNote.
+    _reviewerNoteController.text =
+        (widget.result?.teacherOverallComment.isNotEmpty ?? false)
+            ? widget.result!.teacherOverallComment
+            : (widget.result?.reviewerNote ?? '');
   }
 
   @override
@@ -320,6 +298,7 @@ class _AiPanelState extends State<AiPanel> {
       final state = _editStates[i];
       final original = widget.result!.questionResults![i];
       return QuestionResult(
+        id: original.id,
         questionId: original.questionId,
         questionTitle: original.questionTitle,
         rawScore: state.rawScore,
@@ -341,7 +320,12 @@ class _AiPanelState extends State<AiPanel> {
       totalConverted.clamp(0.0, maxTotalConv).toStringAsFixed(2),
     );
 
+    final reviewNote = _reviewerNoteController.text.trim();
     final updated = GradingResult(
+      id: widget.result!.id,
+      submissionId: widget.result!.submissionId,
+      assessmentId: widget.result!.assessmentId,
+      gradingJobId: widget.result!.gradingJobId,
       fileName: widget.result!.fileName,
       studentId: widget.result!.studentId,
       studentName: widget.result!.studentName,
@@ -350,7 +334,13 @@ class _AiPanelState extends State<AiPanel> {
       criteriaScores: {for (final qr in qrs) qr.questionTitle: qr.convertedScore},
       feedback: widget.result!.feedback,
       questionResults: qrs,
-      reviewerNote: _reviewerNoteController.text.trim(),
+      reviewerNote: reviewNote,
+      teacherOverallComment: reviewNote,
+      reviewStatus: widget.result!.reviewStatus,
+      reviewedRawScore: widget.result!.reviewedRawScore,
+      reviewedConvertedScore: widget.result!.reviewedConvertedScore,
+      finalRawScore: widget.result!.finalRawScore,
+      finalConvertedScore: widget.result!.finalConvertedScore,
     );
 
     widget.onSaveReview(updated);
@@ -548,6 +538,8 @@ class _AiPanelState extends State<AiPanel> {
         hasQR ? _totalRaw : widget.result!.totalRawScore;
     final displayConverted =
         hasQR ? _totalConverted : widget.result!.finalScore;
+    final isReviewed = widget.result!.reviewStatus == 'REVIEWED' ||
+        widget.result!.reviewStatus == 'FINALIZED';
 
     return ListView(
       padding: const EdgeInsets.all(24),
@@ -557,6 +549,7 @@ class _AiPanelState extends State<AiPanel> {
           finalScore: displayConverted,
           maxRawScore: widget.assessment?.totalRawScore ?? 100,
           maxConvertedScore: widget.assessment?.totalConvertedScore ?? 10,
+          isReviewed: isReviewed,
         ),
         const SizedBox(height: 18),
         if (hasQR) ...[
@@ -629,6 +622,28 @@ class _AiPanelState extends State<AiPanel> {
             ),
           ),
         ],
+        if (widget.onNextSubmission != null) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.muted,
+                side: const BorderSide(color: AppColors.outlineVariant),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: widget.onNextSubmission,
+              icon: const Icon(Icons.skip_next_rounded),
+              label: const Text(
+                'Next Submission',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -645,6 +660,274 @@ class _AiPanelState extends State<AiPanel> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// _SubmissionPanel — left pane showing full scrollable submission text
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SubmissionPanel extends StatelessWidget {
+  const _SubmissionPanel({
+    required this.submission,
+    required this.isContentLoading,
+  });
+
+  final Submission submission;
+  final bool isContentLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF060E20),
+      child: Column(
+        children: [
+          _buildHeader(context),
+          Expanded(child: _buildContent()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceContainer,
+        border: Border(bottom: BorderSide(color: AppColors.outlineVariant)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.description_rounded, color: AppColors.muted, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              submission.fileName,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          if (submission.content.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+              onPressed: () => _showFullDialog(context),
+              icon: const Icon(Icons.open_in_full_rounded, size: 14),
+              label: const Text(
+                'View Full',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    // Still loading from backend
+    if (isContentLoading) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Loading submission content…',
+              style: TextStyle(
+                  color: AppColors.muted, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Content loaded but empty
+    if (submission.content.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.description_outlined,
+                  color: AppColors.muted, size: 44),
+              SizedBox(height: 16),
+              Text(
+                'No extracted submission content available for this file.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: AppColors.muted, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Full content — scrollable, selectable
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(28),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceLow,
+          border: Border.all(color: AppColors.outlineVariant),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black45,
+              blurRadius: 14,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: SelectableText(
+          submission.content,
+          style: const TextStyle(
+            color: AppColors.muted,
+            height: 1.7,
+            fontSize: 14,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showFullDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => _FullSubmissionDialog(submission: submission),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _FullSubmissionDialog — full-screen readable view of the submission text
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _FullSubmissionDialog extends StatelessWidget {
+  const _FullSubmissionDialog({required this.submission});
+
+  final Submission submission;
+
+  @override
+  Widget build(BuildContext context) {
+    final charCount = submission.content.length;
+    return Dialog(
+      backgroundColor: AppColors.surface,
+      insetPadding: const EdgeInsets.all(32),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 960,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
+        ),
+        child: Column(
+          children: [
+            // ── Header ───────────────────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 14, 12, 14),
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceContainer,
+                border: Border(
+                  bottom: BorderSide(color: AppColors.outlineVariant),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.description_rounded,
+                      color: AppColors.muted, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      submission.fileName,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded,
+                        color: AppColors.muted, size: 22),
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            // ── Scrollable content ────────────────────────────────────────────
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(32),
+                child: SelectableText(
+                  submission.content.isEmpty
+                      ? 'No extracted submission content available for this file.'
+                      : submission.content,
+                  style: TextStyle(
+                    color: submission.content.isEmpty
+                        ? AppColors.muted
+                        : AppColors.text,
+                    height: 1.75,
+                    fontSize: 14,
+                    fontStyle: submission.content.isEmpty
+                        ? FontStyle.italic
+                        : FontStyle.normal,
+                  ),
+                ),
+              ),
+            ),
+            // ── Footer ───────────────────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceContainer,
+                border: Border(
+                  top: BorderSide(color: AppColors.outlineVariant),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    '$charCount characters',
+                    style: const TextStyle(
+                        color: AppColors.muted, fontSize: 12),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primaryContainer,
+                      foregroundColor: AppColors.text,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ScoreCard — displays live totals (raw + converted)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -655,12 +938,14 @@ class ScoreCard extends StatelessWidget {
     required this.finalScore,
     required this.maxRawScore,
     required this.maxConvertedScore,
+    this.isReviewed = false,
   });
 
   final double totalRawScore;
   final double finalScore;
   final double maxRawScore;
   final double maxConvertedScore;
+  final bool isReviewed;
 
   String _fmt(double v, {bool integer = false}) {
     if (integer) return v.toInt().toString();
@@ -688,9 +973,9 @@ class ScoreCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'RECOMMENDED SCORE',
-            style: TextStyle(
+          Text(
+            isReviewed ? 'TEACHER-REVIEWED SCORE' : 'AI SUGGESTED SCORE',
+            style: const TextStyle(
               color: AppColors.muted,
               fontSize: 11,
               fontWeight: FontWeight.w800,
@@ -1039,7 +1324,7 @@ class CriteriaMiniGrid extends StatelessWidget {
               ),
               const SizedBox(height: 5),
               const Text(
-                'Mock AI scoring',
+                'Score',
                 style: TextStyle(
                   color: AppColors.muted,
                   fontSize: 12,

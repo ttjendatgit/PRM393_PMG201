@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'core/storage/settings_storage.dart';
 import 'features/export/services/export_api_service.dart';
 import 'features/grading/services/grading_api_service.dart';
 import 'features/review/services/review_api_service.dart';
@@ -78,17 +79,61 @@ class _AppShellState extends State<AppShell> {
 
   // ── Backend mode state ─────────────────────────────────────────────────────
   String? _backendAssessmentId;
-  String? _backendJobId;
+  String? _loadingSubmissionId;
+  final Set<String> _fetchedFullSubmissionIds = {};
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedAiMode();
+  }
+
+  Future<void> _loadSavedAiMode() async {
+    final saved = await SettingsStorage.loadAiMode();
+    if (mounted) setState(() => _aiMode = saved);
+  }
 
   // ── Assessment ────────────────────────────────────────────────────────────
 
   void _applyAssessment(Assessment assessment) {
     setState(() {
       currentAssessment = assessment;
+      // Auto-sync so upload/grade/export use the selected assessment ID.
+      _backendAssessmentId = assessment.assessmentId;
+      submissions = [];
       results = [];
+      _statuses = {};
+      _gradingErrors = {};
+      selectedSubmissionIndex = null;
+      _loadingSubmissionId = null;
+      _fetchedFullSubmissionIds.clear();
       message =
           'Assessment loaded: ${assessment.courseCode} — ${assessment.assessmentTitle}';
     });
+    // Auto-load any existing submissions so the workspace is never empty
+    // when switching to an assessment that was worked on previously.
+    if (_aiMode == AiMode.backend) _loadBackendSubmissions();
+  }
+
+  /// Loads all existing submissions for the current assessment from the backend.
+  /// Called on assessment selection so prior-session data is immediately visible.
+  Future<void> _loadBackendSubmissions() async {
+    if (_backendAssessmentId == null) return;
+    try {
+      final subs = await SubmissionApiService.getSubmissions(_backendAssessmentId!);
+      if (!mounted || subs.isEmpty) return;
+      setState(() {
+        submissions = subs;
+        _statuses = {
+          for (final s in subs) s.id: _mapBackendStatus(s.gradingStatus),
+        };
+        message = '${subs.length} submission(s) loaded for this assessment.';
+      });
+    } catch (_) {
+      // Silently ignore — assessment may have no submissions yet.
+    }
   }
 
   // ── SET BACKEND ASSESSMENT ID ──────────────────────────────────────────────
@@ -98,6 +143,89 @@ class _AppShellState extends State<AppShell> {
       _backendAssessmentId = assessmentId;
       message = 'Backend assessment ID set: $assessmentId';
     });
+  }
+
+  // ── Navigate to next submission ────────────────────────────────────────────
+
+  void _selectNextSubmission() {
+    if (selectedSubmissionIndex == null) return;
+    final next = selectedSubmissionIndex! + 1;
+    if (next < submissions.length) {
+      setState(() => selectedSubmissionIndex = next);
+      if (_aiMode == AiMode.backend) {
+        _fetchFullSubmissionIfNeeded(next);
+        _fetchGradingResultForSubmission(next);
+      }
+    }
+  }
+
+  /// Fetches the backend grading result for the submission at [index] and
+  /// updates local [results] state so Grading Detail can display it.
+  ///
+  /// Skips silently when:
+  /// - a result for this submission is already in [results]
+  /// - the submission has no backend id
+  /// - the backend returns null (not yet graded)
+  Future<void> _fetchGradingResultForSubmission(int index) async {
+    if (index < 0 || index >= submissions.length) return;
+    final sub = submissions[index];
+    if (sub.id.isEmpty) return;
+
+    // Skip if we already have a result for this submission in local state.
+    if (results.any((r) => r.submissionId == sub.id)) return;
+
+    try {
+      final result = await GradingApiService.getGradingResult(sub.id);
+      if (!mounted) return;
+      if (result == null) return; // not yet graded — leave status as-is
+
+      setState(() {
+        final idx = results.indexWhere((r) => r.submissionId == sub.id);
+        if (idx >= 0) {
+          final copy = List<GradingResult>.from(results);
+          copy[idx] = result;
+          results = copy;
+        } else {
+          results = [...results, result];
+        }
+        // Sync the status badge on the submission card.
+        _statuses = {
+          ..._statuses,
+          sub.id: _mapReviewStatus(result.reviewStatus),
+        };
+      });
+    } catch (_) {
+      // Silently ignore — submission may not be graded yet, or transient error.
+    }
+  }
+
+  // ── Fetch full submission text on demand (backend list may return truncated extractedText) ─
+
+  Future<void> _fetchFullSubmissionIfNeeded(int index) async {
+    if (index < 0 || index >= submissions.length) return;
+    final sub = submissions[index];
+    if (sub.id.isEmpty) return;
+    // Skip if we already fetched the full content for this submission.
+    if (_fetchedFullSubmissionIds.contains(sub.id)) return;
+    _fetchedFullSubmissionIds.add(sub.id);
+
+    setState(() => _loadingSubmissionId = sub.id);
+
+    try {
+      final full = await SubmissionApiService.getSubmission(sub.id);
+      if (!mounted) return;
+      setState(() {
+        _loadingSubmissionId = null;
+        final copy = List<Submission>.from(submissions);
+        copy[index] = full;
+        submissions = copy;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      // Allow a retry on next selection.
+      _fetchedFullSubmissionIds.remove(sub.id);
+      setState(() => _loadingSubmissionId = null);
+    }
   }
 
   // ── Review save (standalone) ───────────────────────────────────────────────
@@ -123,7 +251,10 @@ class _AppShellState extends State<AppShell> {
   void _updateGeminiApiKey(String value) => setState(() => _geminiApiKey = value);
   void _clearGeminiApiKey() => setState(() => _geminiApiKey = '');
   void _updateGeminiModelId(String value) => setState(() => _geminiModelId = value);
-  void _updateAiMode(AiMode mode) => setState(() => _aiMode = mode);
+  void _updateAiMode(AiMode mode) {
+    setState(() => _aiMode = mode);
+    SettingsStorage.saveAiMode(mode);
+  }
 
   // ── Grade single submission (standalone) ───────────────────────────────────
 
@@ -440,7 +571,7 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _uploadToBackend() async {
     if (_backendAssessmentId == null) {
-      setState(() => message = 'Please set a backend assessment ID first. Go to Settings → Backend Assessment ID.');
+      setState(() => message = 'Please select an assessment in Assessment Setup first.');
       return;
     }
 
@@ -502,7 +633,7 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _gradeAllBackend() async {
     if (_backendAssessmentId == null) {
-      setState(() => message = 'Please set a backend assessment ID first.');
+      setState(() => message = 'Please select an assessment in Assessment Setup first.');
       return;
     }
 
@@ -515,24 +646,40 @@ class _AppShellState extends State<AppShell> {
       final jobResult = await GradingApiService.createGradingJob(_backendAssessmentId!);
 
       setState(() {
-        _backendJobId = jobResult.jobId;
         message = jobResult.message;
       });
 
-      // Poll until done
+      // Poll until done — max 150 attempts × 2 s = 5 minutes.
       bool done = false;
-      while (!done) {
-        await Future.delayed(const Duration(seconds: 2));
-        final status = await GradingApiService.getGradingStatus(_backendAssessmentId!);
-        setState(() {
-          message = 'Grading: ${status.graded + status.error}/${status.totalSubmissions} '
-              '(${status.graded} graded, ${status.error} errors) — Job: ${status.latestJobStatus ?? '...'}';
-        });
+      int pollAttempts = 0;
+      const maxPollAttempts = 150;
+      const finalStatuses = {'COMPLETED', 'COMPLETED_WITH_ERRORS', 'ERROR'};
 
-        final finalStatuses = {'COMPLETED', 'COMPLETED_WITH_ERRORS', 'ERROR'};
-        if (status.latestJobStatus != null && finalStatuses.contains(status.latestJobStatus)) {
-          done = true;
+      while (!done && pollAttempts < maxPollAttempts) {
+        await Future.delayed(const Duration(seconds: 2));
+        pollAttempts++;
+        try {
+          final status = await GradingApiService.getGradingStatus(_backendAssessmentId!);
+          setState(() {
+            message = 'Grading: ${status.graded + status.error}/${status.totalSubmissions} '
+                '(${status.graded} graded, ${status.error} errors) — Job: ${status.latestJobStatus ?? '...'}';
+          });
+          if (status.latestJobStatus != null && finalStatuses.contains(status.latestJobStatus)) {
+            done = true;
+          }
+        } catch (e) {
+          debugPrint('Grading status poll error (attempt $pollAttempts): $e');
         }
+      }
+
+      if (!done) {
+        setState(() {
+          isGrading = false;
+          message = 'Grading timed out after ${pollAttempts * 2}s. '
+              'The job may still be running on the server. '
+              'Refresh results manually when ready.';
+        });
+        return;
       }
 
       // Fetch all results
@@ -558,20 +705,33 @@ class _AppShellState extends State<AppShell> {
     });
 
     try {
-      final result = await GradingApiService.gradeSubmission(submission.id);
+      // Trigger grading via POST.
+      await GradingApiService.gradeSubmission(submission.id);
+
+      // Fetch the full grading result via GET — guarantees submissionId and
+      // all rubric item fields are populated (POST response may omit them).
+      final result = await GradingApiService.getGradingResult(submission.id);
+
+      if (!mounted) return;
 
       setState(() {
         isGrading = false;
-        final idx = results.indexWhere((r) => r.fileName == result.fileName);
-        if (idx >= 0) {
-          final copy = List<GradingResult>.from(results);
-          copy[idx] = result;
-          results = copy;
+        if (result != null) {
+          final idx = results.indexWhere((r) => r.submissionId == submission.id);
+          if (idx >= 0) {
+            final copy = List<GradingResult>.from(results);
+            copy[idx] = result;
+            results = copy;
+          } else {
+            results = [...results, result];
+          }
+          _statuses = {..._statuses, submission.id: GradingStatus.graded};
+          _gradingErrors = Map.from(_gradingErrors)..remove(submission.id);
+          message =
+              'Graded: ${result.studentName.isNotEmpty ? result.studentName : submission.fileName}';
         } else {
-          results = [...results, result];
+          message = 'Grading completed. Tap refresh to reload results.';
         }
-        _statuses = {..._statuses, submission.id: GradingStatus.graded};
-        message = 'Graded: ${result.studentName.isNotEmpty ? result.studentName : submission.fileName}';
       });
     } catch (e) {
       setState(() {
@@ -626,7 +786,7 @@ class _AppShellState extends State<AppShell> {
     required List<Map<String, dynamic>> items,
   }) async {
     try {
-      final updated = await ReviewApiService.submitReview(
+      final saved = await ReviewApiService.submitReview(
         gradingResultId,
         {
           'teacherOverallComment': teacherOverallComment,
@@ -634,16 +794,26 @@ class _AppShellState extends State<AppShell> {
         },
       );
 
+      // Reload the grading result from backend to reflect server-computed scores.
+      GradingResult fresh = saved;
+      if (saved.submissionId.isNotEmpty) {
+        try {
+          final reloaded =
+              await GradingApiService.getGradingResult(saved.submissionId);
+          if (reloaded != null) fresh = reloaded;
+        } catch (_) {}
+      }
+
       setState(() {
-        final idx = results.indexWhere((r) => r.id == updated.id);
+        final idx = results.indexWhere((r) => r.id == fresh.id);
         if (idx >= 0) {
           final copy = List<GradingResult>.from(results);
-          copy[idx] = updated;
+          copy[idx] = fresh;
           results = copy;
         }
         _statuses = {
           ..._statuses,
-          updated.submissionId: GradingStatus.reviewed,
+          fresh.submissionId: GradingStatus.reviewed,
         };
         message = 'Review saved. Score updated.';
       });
@@ -656,16 +826,26 @@ class _AppShellState extends State<AppShell> {
     try {
       final finalized = await ReviewApiService.finalizeResult(gradingResultId);
 
+      // Reload after finalize to get server-confirmed final scores.
+      GradingResult fresh = finalized.result;
+      if (finalized.result.submissionId.isNotEmpty) {
+        try {
+          final reloaded = await GradingApiService.getGradingResult(
+              finalized.result.submissionId);
+          if (reloaded != null) fresh = reloaded;
+        } catch (_) {}
+      }
+
       setState(() {
-        final idx = results.indexWhere((r) => r.id == finalized.result.id);
+        final idx = results.indexWhere((r) => r.id == fresh.id);
         if (idx >= 0) {
           final copy = List<GradingResult>.from(results);
-          copy[idx] = finalized.result;
+          copy[idx] = fresh;
           results = copy;
         }
         _statuses = {
           ..._statuses,
-          finalized.result.submissionId: GradingStatus.finalized,
+          fresh.submissionId: GradingStatus.finalized,
         };
         message = finalized.message;
       });
@@ -678,7 +858,7 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _exportBackendExcel() async {
     if (_backendAssessmentId == null) {
-      setState(() => message = 'No backend assessment ID set.');
+      setState(() => message = 'Please select an assessment in Assessment Setup first.');
       return;
     }
 
@@ -814,14 +994,14 @@ class _AppShellState extends State<AppShell> {
       for (int c = 0; c < totalCols; c++) {
         sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: 0)).cellStyle = headerStyle;
         double w;
-        if (c == 0) w = 8;
-        else if (c == 1) w = 16;
-        else if (c == 2) w = 22;
-        else if (c == 3) w = 28;
-        else if (c == aiCommentCol) w = 45;
-        else if (c == reviewerNoteCol) w = 45;
-        else if (c >= aiCommentCol - 2 && c < aiCommentCol) w = 16;
-        else w = 14;
+        if (c == 0) { w = 8; }
+        else if (c == 1) { w = 16; }
+        else if (c == 2) { w = 22; }
+        else if (c == 3) { w = 28; }
+        else if (c == aiCommentCol) { w = 45; }
+        else if (c == reviewerNoteCol) { w = 45; }
+        else if (c >= aiCommentCol - 2 && c < aiCommentCol) { w = 16; }
+        else { w = 14; }
         sheet.setColumnWidth(c, w);
       }
     }
@@ -990,6 +1170,10 @@ class _AppShellState extends State<AppShell> {
             selectedSubmissionIndex = index;
             selectedIndex = 3;
           });
+          if (_aiMode == AiMode.backend) {
+            _fetchFullSubmissionIfNeeded(index);
+            _fetchGradingResultForSubmission(index);
+          }
         },
       ),
       AssessmentSetupScreen(
@@ -1004,6 +1188,11 @@ class _AppShellState extends State<AppShell> {
         onGradeCurrent: gradeCurrent,
         onSaveReview: _aiMode == AiMode.backend ? _saveBackendReview : _saveReview,
         onFinalize: _aiMode == AiMode.backend ? (id) => _finalizeBackendResult(id) : null,
+        onNextSubmission: (selectedSubmissionIndex ?? -1) < submissions.length - 1
+            ? _selectNextSubmission
+            : null,
+        isContentLoading: _loadingSubmissionId != null &&
+            _loadingSubmissionId == selectedSubmission?.id,
         aiMode: _aiMode,
         assessment: currentAssessment,
         isGrading: isGrading,
@@ -1017,6 +1206,8 @@ class _AppShellState extends State<AppShell> {
       ExportPage(
         results: results,
         onExportExcel: exportExcel,
+        aiMode: _aiMode,
+        backendAssessmentId: _backendAssessmentId,
       ),
       SettingsScreen(
         apiKey: _apiKey,
@@ -1064,6 +1255,13 @@ class _AppShellState extends State<AppShell> {
   // ── Backend review handler (wired to GradingPage.onSaveReview) ────────────
 
   void _saveBackendReview(GradingResult updated) {
+    // P0-D: Guard — gradingResultId must be non-empty
+    if (updated.id.isEmpty) {
+      setState(() => message =
+          'Review error: gradingResultId is missing. Cannot save review.');
+      return;
+    }
+
     final items = updated.questionResults?.asMap().entries.map((e) {
       return {
         'gradingResultItemId': e.value.id,
@@ -1071,6 +1269,12 @@ class _AppShellState extends State<AppShell> {
         'teacherComment': e.value.comment,
       };
     }).toList() ?? [];
+
+    // P0-D: Warn when item IDs are empty (review may only save overall comment)
+    if (items.any((item) => (item['gradingResultItemId'] as String).isEmpty)) {
+      debugPrint('[Review] Warning: one or more gradingResultItemId values are '
+          'empty — per-item scores may not be persisted on the backend.');
+    }
 
     _submitBackendReview(
       gradingResultId: updated.id,

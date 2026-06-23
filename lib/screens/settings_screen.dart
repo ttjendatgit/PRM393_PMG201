@@ -87,7 +87,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _geminiModelController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _backendAssessmentIdController.dispose();
     super.dispose();
   }
 
@@ -183,18 +182,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildAiModeSection(),
             const SizedBox(height: 24),
             if (widget.aiMode == AiMode.backend) ...[
-              _buildBackendAssessmentIdSection(),
+              _buildBackendSection(),
+              const SizedBox(height: 24),
+            ] else ...[
+              _buildOrKeySection(),
+              const SizedBox(height: 24),
+              _buildOrModelSection(),
+              const SizedBox(height: 24),
+              _buildGeminiSection(),
+              const SizedBox(height: 24),
+              _buildBackendSection(),
               const SizedBox(height: 24),
             ],
-            _buildOrKeySection(),
-            const SizedBox(height: 24),
-            _buildOrModelSection(),
-            const SizedBox(height: 24),
-            _buildGeminiSection(),
-            const SizedBox(height: 24),
             _buildSecuritySection(),
-            const SizedBox(height: 24),
-            _buildBackendSection(),
           ],
         ),
       ),
@@ -876,80 +876,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  // ── Backend assessment ID ──────────────────────────────────────────────────
-
-  final _backendAssessmentIdController = TextEditingController();
-
-  void _saveBackendAssessmentId() {
-    final id = _backendAssessmentIdController.text.trim();
-    widget.onSetBackendAssessmentId?.call(id);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(id.isEmpty
-            ? 'Backend assessment ID cleared.'
-            : 'Backend assessment ID set: $id'),
-        duration: const Duration(seconds: 2),
-      ));
-    }
-  }
-
-  Widget _buildBackendAssessmentIdSection() {
-    if (_backendAssessmentIdController.text.isEmpty &&
-        widget.backendAssessmentId != null) {
-      _backendAssessmentIdController.text = widget.backendAssessmentId!;
-    }
-
-    return _SettingsCard(
-      title: 'BACKEND ASSESSMENT ID',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Enter the GUID of an existing assessment on the ASP.NET backend. '
-            'All submission uploads, grading, review, and export will use this assessment.',
-            style: TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _backendAssessmentIdController,
-            style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
-            decoration: InputDecoration(
-              hintText: 'e.g. 3fa85f64-5717-4562-b3fc-2c963f66afa6',
-              hintStyle: const TextStyle(color: AppColors.muted, fontSize: 12),
-              filled: true,
-              fillColor: AppColors.surfaceHigh,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
+          if (widget.backendAssessmentId?.isNotEmpty == true) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withAlpha(15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.primary.withAlpha(60)),
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.primary),
+              child: Row(
+                children: [
+                  const Icon(Icons.assignment_rounded,
+                      size: 15, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Active assessment: ${widget.backendAssessmentId}',
+                      style: const TextStyle(
+                          color: AppColors.primary, fontSize: 12),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 14),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primaryContainer,
-              foregroundColor: AppColors.text,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: _saveBackendAssessmentId,
-            icon: const Icon(Icons.save_rounded),
-            label: const Text('Save Assessment ID',
-                style: TextStyle(fontWeight: FontWeight.w800)),
-          ),
+          ],
         ],
       ),
     );

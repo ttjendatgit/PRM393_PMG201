@@ -44,21 +44,78 @@ class GradingResult {
   });
 
   factory GradingResult.fromJson(Map<String, dynamic> json) {
-    final itemsJson = json['items'] as List<dynamic>?;
-    final questionResults = itemsJson?.map((item) {
-      final i = item as Map<String, dynamic>;
+    // ── Items array: try every key the backend might use ─────────────────────
+    final itemsJson = (json['items'] ??
+            json['gradingItems'] ??
+            json['rubricItems'] ??
+            json['resultItems'] ??
+            json['gradingResultItems'])
+        as List<dynamic>?;
+
+    final questionResults = itemsJson?.map((raw) {
+      final i = raw as Map<String, dynamic>;
+
+      // Item identity — try multiple possible id keys
+      final id = i['id']?.toString() ??
+          i['gradingResultItemId']?.toString() ??
+          i['itemId']?.toString() ??
+          i['resultItemId']?.toString() ??
+          '';
+
+      // Rubric / question identity
+      final questionId = i['rubricItemId']?.toString() ??
+          i['questionNo']?.toString() ??
+          i['questionId']?.toString() ??
+          '';
+
+      // Max raw score — try every naming convention the backend might use
+      final maxRaw = (i['maxRawScore'] as num?)?.toDouble() ??
+          (i['maxRaw'] as num?)?.toDouble() ??
+          (i['rubricMaxRawScore'] as num?)?.toDouble() ??
+          (i['maxRawPoints'] as num?)?.toDouble() ??
+          0.0;
+
+      // Max converted score — same multi-key approach
+      final maxConv = (i['maxConvertedScore'] as num?)?.toDouble() ??
+          (i['maxConverted'] as num?)?.toDouble() ??
+          (i['rubricMaxConvertedScore'] as num?)?.toDouble() ??
+          (i['maxConvertedPoints'] as num?)?.toDouble() ??
+          0.0;
+
+      // Awarded raw score
+      final rawScore = (i['awardedRawScore'] as num?)?.toDouble() ??
+          (i['rawScore'] as num?)?.toDouble() ??
+          (i['reviewedRawScore'] as num?)?.toDouble() ??
+          0.0;
+
+      // Awarded converted score
+      final convScore = (i['awardedConvertedScore'] as num?)?.toDouble() ??
+          (i['convertedScore'] as num?)?.toDouble() ??
+          0.0;
+
+      // AI comment / per-item comment
+      final comment = i['aiComment']?.toString() ??
+          i['comment']?.toString() ??
+          i['feedback']?.toString() ??
+          '';
+
+      // Title
+      final title =
+          i['title']?.toString() ?? i['questionTitle']?.toString() ?? '';
+
       return QuestionResult(
-        id: i['id']?.toString() ?? '',
-        questionId: i['rubricItemId']?.toString() ?? i['questionNo']?.toString() ?? '',
-        questionTitle: i['title']?.toString() ?? '',
-        rawScore: (i['awardedRawScore'] as num?)?.toDouble() ?? 0,
-        convertedScore: (i['awardedConvertedScore'] as num?)?.toDouble() ?? 0,
-        maxRawScore: (i['maxRawScore'] as num?)?.toDouble() ?? 0,
-        maxConvertedScore: (i['maxConvertedScore'] as num?)?.toDouble() ?? 0,
-        comment: i['aiComment']?.toString() ?? '',
+        id: id,
+        questionId: questionId,
+        questionTitle: title,
+        rawScore: rawScore,
+        convertedScore: convScore,
+        maxRawScore: maxRaw,
+        maxConvertedScore: maxConv,
+        comment: comment,
       );
     }).toList();
 
+    // Build criteriaScores map for legacy standalone path
     final criteriaScores = <String, double>{};
     if (questionResults != null) {
       for (final qr in questionResults) {
@@ -81,10 +138,12 @@ class GradingResult {
       questionResults: questionResults,
       reviewStatus: json['reviewStatus']?.toString() ?? 'AI_GRADED',
       reviewedRawScore: (json['reviewedRawScore'] as num?)?.toDouble(),
-      reviewedConvertedScore: (json['reviewedConvertedScore'] as num?)?.toDouble(),
+      reviewedConvertedScore:
+          (json['reviewedConvertedScore'] as num?)?.toDouble(),
       finalRawScore: (json['finalRawScore'] as num?)?.toDouble(),
       finalConvertedScore: (json['finalConvertedScore'] as num?)?.toDouble(),
-      teacherOverallComment: json['teacherOverallComment']?.toString() ?? '',
+      teacherOverallComment:
+          json['teacherOverallComment']?.toString() ?? '',
     );
   }
 }
