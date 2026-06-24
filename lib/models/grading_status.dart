@@ -16,11 +16,11 @@ extension GradingStatusX on GradingStatus {
 
   Color get color => switch (this) {
         GradingStatus.pending => AppColors.muted,
-        GradingStatus.grading => const Color(0xFFFFD180),
+        GradingStatus.grading => const Color(0xFFD97706),
         GradingStatus.graded => AppColors.primary,
-        GradingStatus.reviewed => const Color(0xFF81C995),
-        GradingStatus.finalized => const Color(0xFF64B5F6),
-        GradingStatus.exported => const Color(0xFFB39DDB),
+        GradingStatus.reviewed => AppColors.success,
+        GradingStatus.finalized => AppColors.secondary,
+        GradingStatus.exported => const Color(0xFF7C3AED),
         GradingStatus.error => AppColors.error,
       };
 }

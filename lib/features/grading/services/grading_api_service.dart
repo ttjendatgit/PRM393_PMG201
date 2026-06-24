@@ -52,6 +52,31 @@ class GradingApiService {
     if (data == null) return null;
     return GradingResult.fromJson(data as Map<String, dynamic>);
   }
+
+  /// POST /api/submissions/{submissionId}/manual-result
+  ///
+  /// Creates a grading result manually (no AI required).
+  /// [request] shape:
+  /// ```
+  /// {
+  ///   "teacherOverallComment": "optional",
+  ///   "items": [
+  ///     { "rubricItemId": "<guid>", "questionNo": 1,
+  ///       "reviewedRawScore": 10, "teacherComment": "Good" }
+  ///   ]
+  /// }
+  /// ```
+  /// Returns a [GradingResult] (same shape as GET grading-result).
+  static Future<GradingResult> createManualResult(
+    String submissionId,
+    Map<String, dynamic> request,
+  ) async {
+    final data = await ApiClient.post(
+      '/api/submissions/$submissionId/manual-result',
+      body: request,
+    );
+    return GradingResult.fromJson(data as Map<String, dynamic>);
+  }
 }
 
 class CreateGradingJobResult {

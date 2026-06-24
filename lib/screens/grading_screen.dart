@@ -120,17 +120,18 @@ class GradingPage extends StatelessWidget {
         ),
         // Right pane — AI analysis + review
         AiPanel(
-          result: result,
-          onGradeAll: onGradeAll,
+          result:        result,
+          submissionId:  submission!.id,
+          onGradeAll:    onGradeAll,
           onGradeCurrent: onGradeCurrent,
-          onSaveReview: onSaveReview,
-          onFinalize: onFinalize,
+          onSaveReview:  onSaveReview,
+          onFinalize:    onFinalize,
           onNextSubmission: onNextSubmission,
-          aiMode: aiMode,
-          assessment: assessment,
-          isGrading: isGrading,
-          status: status,
-          gradingError: gradingError,
+          aiMode:        aiMode,
+          assessment:    assessment,
+          isGrading:     isGrading,
+          status:        status,
+          gradingError:  gradingError,
         ),
       ],
     );
@@ -151,6 +152,7 @@ class AiPanel extends StatefulWidget {
     required this.aiMode,
     required this.assessment,
     required this.isGrading,
+    this.submissionId = '',
     this.status,
     this.gradingError,
     this.onFinalize,
@@ -166,6 +168,8 @@ class AiPanel extends StatefulWidget {
   final AiMode aiMode;
   final Assessment? assessment;
   final bool isGrading;
+  /// Submission ID for manual grading mode — used when result.id is absent.
+  final String submissionId;
   final GradingStatus? status;
   final String? gradingError;
 
@@ -179,6 +183,9 @@ class _AiPanelState extends State<AiPanel> {
   final List<TextEditingController> _commentControllers = [];
   final TextEditingController _reviewerNoteController = TextEditingController();
 
+  // Manual Grading Mode — active when AI result is absent or unusable.
+  bool _isManualMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -188,11 +195,19 @@ class _AiPanelState extends State<AiPanel> {
   @override
   void didUpdateWidget(AiPanel old) {
     super.didUpdateWidget(old);
-    // Reinitialise when switching to a different submission or when AI results
-    // arrive for the first time (null → non-null questionResults).
-    if (old.result?.fileName != widget.result?.fileName ||
-        (widget.result?.questionResults != null &&
-            old.result?.questionResults == null)) {
+    // Reinitialise when:
+    //  • switching to a different grading-result record (id changes), OR
+    //  • switching to a different submission (submissionId changes), OR
+    //  • a new result arrives for the same submission (null → non-null questionResults).
+    // Using result.id / submissionId instead of fileName prevents stale edit
+    // state when two files share the same name or when a result is re-fetched.
+    final itemsArrived = widget.result?.questionResults?.isNotEmpty == true &&
+        (old.result?.questionResults == null || old.result!.questionResults!.isEmpty);
+    if (old.result?.id != widget.result?.id ||
+        old.result?.submissionId != widget.result?.submissionId ||
+        itemsArrived) {
+      // Exit manual mode when a real AI result with items arrives.
+      if (_isManualMode && itemsArrived) _isManualMode = false;
       _initEditStates();
     }
   }
@@ -232,18 +247,27 @@ class _AiPanelState extends State<AiPanel> {
           }
         }
 
+        // When the teacher has already reviewed this item, initialise
+        // the edit field from reviewedRawScore so the reviewed score is
+        // displayed (not the original AI-awarded score).
+        final initRaw = qr.reviewedRawScore ?? qr.rawScore;
+        // Prefer the teacher's saved comment over the AI comment.
+        final initComment = qr.teacherComment.isNotEmpty
+            ? qr.teacherComment
+            : qr.comment;
+
         _editStates.add(_QuestionEditState(
-          questionId: qr.questionId,
-          questionTitle: qr.questionTitle,
-          maxRawScore: maxRaw,
+          questionId:       qr.questionId,
+          questionTitle:    qr.questionTitle,
+          maxRawScore:      maxRaw,
           maxConvertedScore: maxConv,
-          initialRaw: qr.rawScore,
+          initialRaw:       initRaw,
         ));
         _rawControllers.add(
-          TextEditingController(text: qr.rawScore.toInt().toString()),
+          TextEditingController(text: initRaw.toInt().toString()),
         );
         _commentControllers.add(
-          TextEditingController(text: qr.comment),
+          TextEditingController(text: initComment),
         );
       }
     }
@@ -295,18 +319,20 @@ class _AiPanelState extends State<AiPanel> {
 
   void _saveReview() {
     final qrs = List.generate(_editStates.length, (i) {
-      final state = _editStates[i];
+      final state    = _editStates[i];
       final original = widget.result!.questionResults![i];
       return QuestionResult(
-        id: original.id,
-        questionId: original.questionId,
-        questionTitle: original.questionTitle,
-        rawScore: state.rawScore,
-        convertedScore: state.convertedScore,
-        maxRawScore: original.maxRawScore,
-        maxConvertedScore: original.maxConvertedScore,
-        comment: _commentControllers[i].text,
-        subscores: original.subscores,
+        id:                    original.id,
+        questionId:            original.questionId,
+        questionTitle:         original.questionTitle,
+        rawScore:              state.rawScore,      // teacher's edited value
+        convertedScore:        state.convertedScore,
+        maxRawScore:           original.maxRawScore,
+        maxConvertedScore:     original.maxConvertedScore,
+        comment:               original.comment,   // preserve original AI comment
+        evidence:              original.evidence,
+        teacherComment:        _commentControllers[i].text, // teacher's text
+        subscores:             original.subscores,
       );
     });
 
@@ -346,6 +372,119 @@ class _AiPanelState extends State<AiPanel> {
     widget.onSaveReview(updated);
   }
 
+  // ── Manual Grading Mode ───────────────────────────────────────────────────
+
+  /// True when a usable AI result is available (has items, or has aggregate
+  /// score with feedback).  False → show manual grading offer.
+  void _enterManualMode() {
+    final rubric = widget.assessment?.questions ?? [];
+    debugPrint('[ManualMode] Enter: subId=${widget.submissionId} '
+        'rubricItems=${rubric.length}');
+    // Dispose existing controllers and rebuild from rubric.
+    for (final c in _rawControllers) { c.dispose(); }
+    _rawControllers.clear();
+    for (final c in _commentControllers) { c.dispose(); }
+    _commentControllers.clear();
+    _editStates = [];
+    _reviewerNoteController.text = widget.result?.teacherOverallComment ?? '';
+
+    for (final q in rubric) {
+      // Pre-fill from any existing reviewed scores on the result items.
+      final existing = widget.result?.questionResults?.cast<QuestionResult?>()
+          .firstWhere((i) => i?.questionTitle == q.title, orElse: () => null);
+      final initRaw = existing?.reviewedRawScore ?? existing?.rawScore ?? 0.0;
+
+      _editStates.add(_QuestionEditState(
+        questionId:       q.questionId,
+        questionTitle:    q.title,
+        maxRawScore:      q.rawMaxScore,
+        maxConvertedScore: q.convertedMaxScore,
+        initialRaw:       initRaw,
+      ));
+      _rawControllers.add(TextEditingController(text: initRaw.toInt().toString()));
+      _commentControllers.add(TextEditingController(
+        text: existing?.teacherComment ?? existing?.comment ?? '',
+      ));
+    }
+    setState(() => _isManualMode = true);
+  }
+
+  void _exitManualMode() {
+    setState(() => _isManualMode = false);
+    _initEditStates();
+  }
+
+  void _saveManualReview(BuildContext ctx) {
+    final resultId      = widget.result?.id ?? '';
+    final submissionId  = widget.result?.submissionId.isNotEmpty == true
+        ? widget.result!.submissionId
+        : widget.submissionId;
+    final rubric        = widget.assessment?.questions ?? [];
+
+    final qrs = List.generate(_editStates.length, (i) {
+      final state      = _editStates[i];
+      // Reuse existing item ID if available (required by PUT /review).
+      final existingId = (widget.result?.questionResults?.isNotEmpty == true &&
+              i < widget.result!.questionResults!.length)
+          ? widget.result!.questionResults![i].id
+          : '';
+      final rubricItem = i < rubric.length ? rubric[i] : null;
+      return QuestionResult(
+        id:                existingId,
+        // questionId holds the rubric item's backend ID (uuid) for PUT,
+        // or the questionNo (1-based index) when no backend ID exists.
+        questionId:        rubricItem?.questionId ?? state.questionId,
+        questionTitle:     state.questionTitle,
+        rawScore:          state.rawScore,
+        convertedScore:    state.convertedScore,
+        maxRawScore:       state.maxRawScore,
+        maxConvertedScore: state.maxConvertedScore,
+        comment:           '',
+        teacherComment:    _commentControllers[i].text,
+      );
+    });
+
+    final totalRaw  = qrs.fold<double>(0.0, (s, q) => s + q.rawScore);
+    final totalConv = double.parse(
+        qrs.fold<double>(0.0, (s, q) => s + q.convertedScore).toStringAsFixed(2));
+    final maxConv   = widget.assessment?.totalConvertedScore ?? totalConv;
+    final finalScore = double.parse(totalConv.clamp(0.0, maxConv).toStringAsFixed(2));
+    final reviewNote = _reviewerNoteController.text.trim();
+
+    if (resultId.isEmpty) {
+      // ── POST /api/submissions/{id}/manual-result path ──────────────────────
+      debugPrint('[ManualMode] POST manual-result path: '
+          'submissionId=$submissionId items=${qrs.length}');
+    } else {
+      // ── PUT /api/grading-results/{id}/review path ──────────────────────────
+      debugPrint('[ManualMode] PUT review path: '
+          'submissionId=$submissionId resultId=$resultId '
+          'totalRaw=$totalRaw totalConv=$finalScore items=${qrs.length}');
+    }
+
+    final updated = GradingResult(
+      id:            resultId,      // empty → parent will POST; non-empty → PUT
+      submissionId:  submissionId,
+      assessmentId:  widget.result?.assessmentId ?? '',
+      gradingJobId:  widget.result?.gradingJobId,
+      fileName:      widget.result?.fileName ?? '',
+      studentId:     widget.result?.studentId ?? '',
+      studentName:   widget.result?.studentName ?? '',
+      totalRawScore: totalRaw,
+      finalScore:    finalScore,
+      criteriaScores: {for (final q in qrs) q.questionTitle: q.convertedScore},
+      feedback:      widget.result?.feedback ?? 'Manual grading',
+      questionResults: qrs,
+      reviewerNote:  reviewNote,
+      teacherOverallComment: reviewNote,
+      reviewStatus:  'REVIEWED',
+      reviewedRawScore:       totalRaw,
+      reviewedConvertedScore: finalScore,
+      status:        widget.result?.status ?? '',
+    );
+    widget.onSaveReview(updated);
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -360,9 +499,11 @@ class _AiPanelState extends State<AiPanel> {
         children: [
           _buildPanelHeader(),
           Expanded(
-            child: widget.result == null
-                ? _buildPendingState()
-                : _buildResultState(),
+            child: _isManualMode
+                ? _buildManualModePanel()
+                : (widget.result == null
+                    ? _buildPendingState()
+                    : _buildResultState()),
           ),
         ],
       ),
@@ -384,10 +525,10 @@ class _AiPanelState extends State<AiPanel> {
         children: [
           Icon(
             switch (widget.aiMode) {
-              AiMode.openRouter => Icons.hub_rounded,
-              AiMode.gemini => Icons.auto_awesome_rounded,
-              AiMode.mock => Icons.science_rounded,
-              AiMode.backend => Icons.cloud_rounded,
+              AiMode.mock       => Icons.science_rounded,
+              AiMode.openRouter => Icons.cloud_rounded,
+              AiMode.gemini     => Icons.cloud_rounded,
+              AiMode.backend    => Icons.cloud_rounded,
             },
             color: AppColors.primary,
           ),
@@ -410,17 +551,19 @@ class _AiPanelState extends State<AiPanel> {
   Widget _buildPendingState() {
     final isError = widget.status == GradingStatus.error;
 
+    // Mode is always AiMode.backend in this app; label/icon fall back to
+    // backend for any legacy non-backend value that may have slipped through.
     final providerName = switch (widget.aiMode) {
-      AiMode.mock => 'Mock AI',
-      AiMode.openRouter => 'OpenRouter AI',
-      AiMode.gemini => 'Gemini AI',
-      AiMode.backend => 'Backend AI',
+      AiMode.mock       => 'Mock AI',
+      AiMode.openRouter => 'Backend AI',
+      AiMode.gemini     => 'Backend AI',
+      AiMode.backend    => 'Backend AI',
     };
     final providerIcon = switch (widget.aiMode) {
-      AiMode.mock => Icons.science_rounded,
-      AiMode.openRouter => Icons.hub_rounded,
-      AiMode.gemini => Icons.auto_awesome_rounded,
-      AiMode.backend => Icons.cloud_rounded,
+      AiMode.mock       => Icons.science_rounded,
+      AiMode.openRouter => Icons.cloud_rounded,
+      AiMode.gemini     => Icons.cloud_rounded,
+      AiMode.backend    => Icons.cloud_rounded,
     };
 
     return Padding(
@@ -474,9 +617,7 @@ class _AiPanelState extends State<AiPanel> {
             EmptyCard(
               text: widget.aiMode == AiMode.mock
                   ? 'This submission has not been graded yet. Click Grade This File to run mock grading, or Grade All Files to grade all imported submissions.'
-                  : widget.aiMode == AiMode.backend
-                      ? 'This submission has not been graded yet. Click Grade This File to grade via backend, or Grade All Files to start a grading job.'
-                      : 'This submission has not been graded yet. Make sure an assessment is loaded and a valid API key is set in Settings, then grade.',
+                  : 'This submission has not been graded yet. Click Grade This File to grade via Backend AI, or Grade All Files to start a backend grading job.',
             ),
           ],
           const SizedBox(height: 16),
@@ -527,6 +668,34 @@ class _AiPanelState extends State<AiPanel> {
             icon: const Icon(Icons.list_rounded, size: 18),
             label: const Text('Grade All Files'),
           ),
+          // Offer Manual Mode when assessment has a rubric loaded.
+          if (widget.assessment?.questions.isNotEmpty == true) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 12),
+            const Text(
+              'OR enter scores manually from the rubric:',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.warning,
+                side: BorderSide(color: AppColors.warning.withAlpha(160)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: _enterManualMode,
+              icon: const Icon(Icons.edit_rounded, size: 16),
+              label: const Text(
+                'Enter Manual Grades',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -534,22 +703,49 @@ class _AiPanelState extends State<AiPanel> {
 
   Widget _buildResultState() {
     final hasQR = _editStates.isNotEmpty;
-    final displayRaw =
-        hasQR ? _totalRaw : widget.result!.totalRawScore;
-    final displayConverted =
-        hasQR ? _totalConverted : widget.result!.finalScore;
-    final isReviewed = widget.result!.reviewStatus == 'REVIEWED' ||
-        widget.result!.reviewStatus == 'FINALIZED';
+    final r     = widget.result!;
+
+    // Prefer server-confirmed reviewed/final scores over locally recomputed
+    // values.  Fall back to edit-state totals (live editing) or AI totals.
+    final displayRaw = () {
+      if (r.reviewStatus == 'FINALIZED' && r.finalRawScore != null) {
+        return r.finalRawScore!;
+      }
+      if (r.reviewStatus == 'REVIEWED' && r.reviewedRawScore != null) {
+        return r.reviewedRawScore!;
+      }
+      return hasQR ? _totalRaw : r.totalRawScore;
+    }();
+
+    final displayConverted = () {
+      if (r.reviewStatus == 'FINALIZED' && r.finalConvertedScore != null) {
+        return r.finalConvertedScore!;
+      }
+      if (r.reviewStatus == 'REVIEWED' && r.reviewedConvertedScore != null) {
+        return r.reviewedConvertedScore!;
+      }
+      return hasQR ? _totalConverted : r.finalScore;
+    }();
+
+    final isReviewed = r.reviewStatus == 'REVIEWED' ||
+        r.reviewStatus == 'FINALIZED';
+
+    // Compute max scores from item maxRawScore / maxConvertedScore sums so the
+    // denominator is correct even when assessment is not loaded.
+    final maxRawFromItems  = _editStates.fold(0.0, (s, e) => s + e.maxRawScore);
+    final maxConvFromItems = _editStates.fold(0.0, (s, e) => s + e.maxConvertedScore);
+    final maxRaw  = (hasQR && maxRawFromItems  > 0) ? maxRawFromItems  : (widget.assessment?.totalRawScore      ?? 100.0);
+    final maxConv = (hasQR && maxConvFromItems > 0) ? maxConvFromItems : (widget.assessment?.totalConvertedScore ?? 10.0);
 
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
         ScoreCard(
-          totalRawScore: displayRaw,
-          finalScore: displayConverted,
-          maxRawScore: widget.assessment?.totalRawScore ?? 100,
-          maxConvertedScore: widget.assessment?.totalConvertedScore ?? 10,
-          isReviewed: isReviewed,
+          totalRawScore:    displayRaw,
+          finalScore:       displayConverted,
+          maxRawScore:      maxRaw,
+          maxConvertedScore: maxConv,
+          isReviewed:       isReviewed,
         ),
         const SizedBox(height: 18),
         if (hasQR) ...[
@@ -557,18 +753,79 @@ class _AiPanelState extends State<AiPanel> {
           const SizedBox(height: 10),
           ...List.generate(
             _editStates.length,
-            (i) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _EditableQuestionCard(
-                state: _editStates[i],
-                rawController: _rawControllers[i],
-                commentController: _commentControllers[i],
-                onRawChanged: (v) => _onRawChanged(i, v),
+            (i) {
+              final qrs = widget.result?.questionResults;
+              final evidence = (qrs != null && i < qrs.length)
+                  ? qrs[i].evidence
+                  : '';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _EditableQuestionCard(
+                  state:             _editStates[i],
+                  rawController:     _rawControllers[i],
+                  commentController: _commentControllers[i],
+                  onRawChanged:      (v) => _onRawChanged(i, v),
+                  evidence:          evidence,
+                ),
+              );
+            },
+          ),
+        ] else ...[
+          // No item breakdown — show a warning and offer Manual Mode.
+          if (widget.assessment?.questions.isNotEmpty == true) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withAlpha(15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.warning.withAlpha(60)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Item breakdown unavailable.',
+                    style: TextStyle(
+                      color: AppColors.warning,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'AI scored this submission but did not return per-question '
+                    'detail. Adjust the aggregate score above, or switch to '
+                    'Manual Mode to enter per-question scores from the rubric.',
+                    style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.warning,
+                      side: BorderSide(color: AppColors.warning.withAlpha(160)),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 6, horizontal: 10),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: _enterManualMode,
+                    icon: const Icon(Icons.edit_rounded, size: 14),
+                    label: const Text(
+                      'Switch to Manual Mode',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 12),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-        ] else
-          CriteriaMiniGrid(result: widget.result!),
+            const SizedBox(height: 12),
+          ],
+          if (widget.result!.criteriaScores.isNotEmpty)
+            CriteriaMiniGrid(result: widget.result!),
+        ],
         const SizedBox(height: 18),
         _sectionLabel('REVIEWER NOTE'),
         const SizedBox(height: 8),
@@ -657,6 +914,143 @@ class _AiPanelState extends State<AiPanel> {
           letterSpacing: 1.2,
         ),
       );
+
+  // ── Manual Grading Mode panel ──────────────────────────────────────────────
+
+  Widget _buildManualModePanel() {
+    final maxRaw  = _editStates.fold(0.0, (s, e) => s + e.maxRawScore);
+    final maxConv = _editStates.fold(0.0, (s, e) => s + e.maxConvertedScore);
+    final resultId = widget.result?.id ?? '';
+
+    return Builder(builder: (ctx) => ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        // ── Mode banner ────────────────────────────────────────────────────
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.warning.withAlpha(20),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.warning.withAlpha(80)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.edit_rounded, color: AppColors.warning, size: 16),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Manual Grading Mode — enter scores from the rubric.',
+                  style: TextStyle(
+                      color: AppColors.warning,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.muted,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: _exitManualMode,
+                child: const Text('Exit', style: TextStyle(fontSize: 11)),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // ── Live score card ────────────────────────────────────────────────
+        ScoreCard(
+          totalRawScore:    _totalRaw,
+          finalScore:       _totalConverted,
+          maxRawScore:      maxRaw  > 0 ? maxRaw  : (widget.assessment?.totalRawScore      ?? 100.0),
+          maxConvertedScore: maxConv > 0 ? maxConv : (widget.assessment?.totalConvertedScore ?? 10.0),
+          isReviewed: false,
+        ),
+        const SizedBox(height: 18),
+
+        // ── Rubric rows ────────────────────────────────────────────────────
+        if (_editStates.isEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.warning.withAlpha(15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.warning.withAlpha(50)),
+            ),
+            child: const Text(
+              'No rubric items found. Load an assessment with a parsed rubric to enable manual grading.',
+              style: TextStyle(color: AppColors.warning, fontSize: 13),
+            ),
+          ),
+        ] else ...[
+          _sectionLabel('RUBRIC BREAKDOWN (MANUAL)'),
+          const SizedBox(height: 10),
+          ...List.generate(_editStates.length, (i) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _EditableQuestionCard(
+              state:             _editStates[i],
+              rawController:     _rawControllers[i],
+              commentController: _commentControllers[i],
+              onRawChanged:      (v) => _onRawChanged(i, v),
+            ),
+          )),
+        ],
+
+        const SizedBox(height: 18),
+        _sectionLabel('OVERALL COMMENT'),
+        const SizedBox(height: 8),
+        _ReviewerNoteField(controller: _reviewerNoteController),
+        const SizedBox(height: 18),
+
+        // ── Save button ────────────────────────────────────────────────────
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primaryContainer,
+              foregroundColor: AppColors.text,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => _saveManualReview(ctx),
+            icon: const Icon(Icons.save_rounded),
+            label: Text(
+              resultId.isNotEmpty
+                  ? 'Save Manual Review'
+                  : 'Save Manual Grades',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ),
+
+        // ── Finalize (if available) ────────────────────────────────────────
+        if (widget.onFinalize != null && resultId.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () => widget.onFinalize?.call(resultId),
+              icon: const Icon(Icons.lock_rounded),
+              label: const Text('Finalize Result',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ],
+      ],
+    ));
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1119,12 +1513,14 @@ class _EditableQuestionCard extends StatelessWidget {
     required this.rawController,
     required this.commentController,
     required this.onRawChanged,
+    this.evidence = '',
   });
 
   final _QuestionEditState state;
   final TextEditingController rawController;
   final TextEditingController commentController;
   final ValueChanged<String> onRawChanged;
+  final String evidence;
 
   String _fmtMax(double v) =>
       v % 1 == 0 ? v.toInt().toString() : v.toString();
@@ -1215,7 +1611,7 @@ class _EditableQuestionCard extends StatelessWidget {
             color: AppColors.primary,
           ),
           const SizedBox(height: 10),
-          // Comment field
+          // Teacher comment field
           TextField(
             controller: commentController,
             maxLines: 2,
@@ -1224,8 +1620,44 @@ class _EditableQuestionCard extends StatelessWidget {
               fontSize: 12,
               height: 1.45,
             ),
-            decoration: _fieldDec(hint: 'Comment…'),
+            decoration: _fieldDec(hint: 'Teacher comment…'),
           ),
+          // Evidence from AI (read-only, shown when present)
+          if (evidence.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceHigh,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.outlineVariant),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'EVIDENCE',
+                    style: TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    evidence,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

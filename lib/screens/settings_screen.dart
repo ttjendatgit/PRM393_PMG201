@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
+
+import '../core/network/api_exception.dart';
+import '../features/auth/models/login_request.dart';
+import '../features/auth/models/user_profile.dart';
+import '../features/auth/services/auth_service.dart';
 import '../models/ai_mode.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_frame.dart';
 import '../widgets/page_title.dart';
-import '../features/auth/models/login_request.dart';
-import '../features/auth/models/user_profile.dart';
-import '../features/auth/services/auth_service.dart';
-import '../core/network/api_exception.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SettingsScreen
+//
+// Constructor props are kept 1-to-1 with AppShell so that the call-site in
+// main.dart does not need to change.  All OpenRouter / Gemini frontend-key
+// sections have been removed: grading is backend-only and the AI provider
+// credentials are managed server-side.
+// ─────────────────────────────────────────────────────────────────────────────
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -27,14 +37,13 @@ class SettingsScreen extends StatefulWidget {
     this.onSetBackendAssessmentId,
   });
 
-  // OpenRouter
+  // Kept for AppShell call-site compatibility (unused in this screen).
   final String apiKey;
   final String modelId;
   final ValueChanged<String> onSaveApiKey;
   final VoidCallback onClearApiKey;
   final ValueChanged<String> onSaveModelId;
 
-  // Gemini
   final String geminiApiKey;
   final String geminiModelId;
   final ValueChanged<String> onSaveGeminiApiKey;
@@ -44,7 +53,6 @@ class SettingsScreen extends StatefulWidget {
   final AiMode aiMode;
   final ValueChanged<AiMode> onChangeAiMode;
 
-  // Backend
   final String? backendAssessmentId;
   final ValueChanged<String>? onSetBackendAssessmentId;
 
@@ -53,115 +61,69 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _orKeyController = TextEditingController();
-  final _orModelController = TextEditingController();
-  final _geminiKeyController = TextEditingController();
-  final _geminiModelController = TextEditingController();
-
   // Backend connection test
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _emailCtrl    = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  bool _passwordVisible = false;
   bool _backendLoading = false;
   String? _backendStatus;
   bool _backendIsError = false;
   UserProfile? _loggedInUser;
-  bool _passwordVisible = false;
-
-  bool _orObscure = true;
-  bool _geminiObscure = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _orKeyController.text = widget.apiKey;
-    _orModelController.text = widget.modelId;
-    _geminiKeyController.text = widget.geminiApiKey;
-    _geminiModelController.text = widget.geminiModelId;
-  }
 
   @override
   void dispose() {
-    _orKeyController.dispose();
-    _orModelController.dispose();
-    _geminiKeyController.dispose();
-    _geminiModelController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
   }
 
-  // ── OpenRouter callbacks ───────────────────────────────────────────────────
+  // ── Backend test callbacks ─────────────────────────────────────────────────
 
-  void _saveOrKey() {
-    final key = _orKeyController.text.trim();
-    widget.onSaveApiKey(key);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(key.isEmpty
-            ? 'OpenRouter API key cleared.'
-            : 'OpenRouter API key saved for this session.'),
-        duration: const Duration(seconds: 2),
-      ));
+  Future<void> _testLogin() async {
+    final email    = _emailCtrl.text.trim();
+    final password = _passwordCtrl.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() { _backendStatus = 'Enter email and password first.'; _backendIsError = true; });
+      return;
+    }
+    setState(() { _backendLoading = true; _backendStatus = null; _backendIsError = false; _loggedInUser = null; });
+    try {
+      final profile = await AuthService.login(LoginRequest(email: email, password: password));
+      setState(() {
+        _backendLoading = false;
+        _loggedInUser   = profile;
+        _backendStatus  = 'Logged in as ${profile.displayName}';
+        _backendIsError = false;
+      });
+    } on ApiException catch (e) {
+      setState(() { _backendLoading = false; _backendStatus = e.message; _backendIsError = true; });
+    } catch (e) {
+      setState(() { _backendLoading = false; _backendStatus = e.toString(); _backendIsError = true; });
     }
   }
 
-  void _clearOrKey() {
-    _orKeyController.clear();
-    widget.onClearApiKey();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('OpenRouter API key cleared.'),
-        duration: Duration(seconds: 2),
-      ));
+  Future<void> _testGetProfile() async {
+    setState(() { _backendLoading = true; _backendStatus = null; _backendIsError = false; });
+    try {
+      final profile = await AuthService.me();
+      setState(() {
+        _backendLoading = false;
+        _loggedInUser   = profile;
+        _backendStatus  = 'Profile: ${profile.email}'
+            '${profile.fullName != null ? ' — ${profile.fullName}' : ''}'
+            '${profile.role != null ? ' [${profile.role}]' : ''}';
+        _backendIsError = false;
+      });
+    } on ApiException catch (e) {
+      setState(() { _backendLoading = false; _backendStatus = e.message; _backendIsError = true; });
+    } catch (e) {
+      setState(() { _backendLoading = false; _backendStatus = e.toString(); _backendIsError = true; });
     }
   }
 
-  void _saveOrModel() {
-    final id = _orModelController.text.trim();
-    widget.onSaveModelId(id);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(id.isEmpty ? 'Model ID cleared.' : 'OpenRouter model saved: $id'),
-        duration: const Duration(seconds: 2),
-      ));
-    }
-  }
-
-  // ── Gemini callbacks ───────────────────────────────────────────────────────
-
-  void _saveGeminiKey() {
-    final key = _geminiKeyController.text.trim();
-    widget.onSaveGeminiApiKey(key);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(key.isEmpty
-            ? 'Gemini API key cleared.'
-            : 'Gemini API key saved for this session.'),
-        duration: const Duration(seconds: 2),
-      ));
-    }
-  }
-
-  void _clearGeminiKey() {
-    _geminiKeyController.clear();
-    widget.onClearGeminiApiKey();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Gemini API key cleared.'),
-        duration: Duration(seconds: 2),
-      ));
-    }
-  }
-
-  void _saveGeminiModel() {
-    final id = _geminiModelController.text.trim();
-    widget.onSaveGeminiModelId(id);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(id.isEmpty ? 'Model ID cleared.' : 'Gemini model saved: $id'),
-        duration: const Duration(seconds: 2),
-      ));
-    }
+  Future<void> _testLogout() async {
+    await AuthService.logout();
+    setState(() { _loggedInUser = null; _backendStatus = 'Logged out. Token cleared.'; _backendIsError = false; });
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -175,25 +137,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             const PageTitle(
               title: 'Settings',
-              subtitle:
-                  'Configure your AI provider, API key, model, and grading mode for this session.',
+              subtitle: 'Backend AI Engine is active. All grading is handled server-side.',
             ),
             const SizedBox(height: 32),
-            _buildAiModeSection(),
+            _buildAiEngineSection(),
             const SizedBox(height: 24),
-            if (widget.aiMode == AiMode.backend) ...[
-              _buildBackendSection(),
-              const SizedBox(height: 24),
-            ] else ...[
-              _buildOrKeySection(),
-              const SizedBox(height: 24),
-              _buildOrModelSection(),
-              const SizedBox(height: 24),
-              _buildGeminiSection(),
-              const SizedBox(height: 24),
-              _buildBackendSection(),
-              const SizedBox(height: 24),
-            ],
+            _buildBackendSection(),
+            const SizedBox(height: 24),
             _buildSecuritySection(),
           ],
         ),
@@ -201,426 +151,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ── AI Mode ────────────────────────────────────────────────────────────────
+  // ── AI Engine (backend-locked) ─────────────────────────────────────────────
 
-  Widget _buildAiModeSection() {
+  Widget _buildAiEngineSection() {
     return _SettingsCard(
-      title: 'AI PROVIDER',
+      title: 'AI ENGINE',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SegmentedButton<AiMode>(
-            style: SegmentedButton.styleFrom(
-              backgroundColor: AppColors.surfaceHigh,
-              foregroundColor: AppColors.muted,
-              selectedForegroundColor: AppColors.text,
-              selectedBackgroundColor: AppColors.primaryContainer,
-              side: const BorderSide(color: AppColors.outlineVariant),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: AppColors.primaryContainer,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withAlpha(80)),
             ),
-            segments: const [
-              ButtonSegment(
-                value: AiMode.mock,
-                label: Text('Mock AI'),
-                icon: Icon(Icons.science_rounded),
-              ),
-              ButtonSegment(
-                value: AiMode.openRouter,
-                label: Text('OpenRouter'),
-                icon: Icon(Icons.hub_rounded),
-              ),
-              ButtonSegment(
-                value: AiMode.gemini,
-                label: Text('Gemini'),
-                icon: Icon(Icons.auto_awesome_rounded),
-              ),
-              ButtonSegment(
-                value: AiMode.backend,
-                label: Text('Backend'),
-                icon: Icon(Icons.cloud_rounded),
-              ),
-            ],
-            selected: {widget.aiMode},
-            onSelectionChanged: (Set<AiMode> selected) {
-              widget.onChangeAiMode(selected.first);
-            },
-          ),
-          const SizedBox(height: 14),
-          _ModeInfoRow(
-            icon: Icons.science_rounded,
-            label: 'Mock AI',
-            description:
-                'No API key required. Returns sample scores for testing the grading workflow.',
-            active: widget.aiMode == AiMode.mock,
-          ),
-          const SizedBox(height: 8),
-          _ModeInfoRow(
-            icon: Icons.hub_rounded,
-            label: 'OpenRouter',
-            description:
-                'Routes through OpenRouter to your chosen model. '
-                'Requires a valid OpenRouter API key (sk-or-v1-...) and model ID. '
-                'Grades based on the loaded assessment rubric. Supports Vietnamese and English.',
-            active: widget.aiMode == AiMode.openRouter,
-          ),
-          const SizedBox(height: 8),
-          _ModeInfoRow(
-            icon: Icons.auto_awesome_rounded,
-            label: 'Gemini',
-            description:
-                'Calls Google Gemini directly. Free tier available with a Google AI Studio key (AIza...). '
-                'Same rubric-based grading. Supports Vietnamese and English submissions.',
-            active: widget.aiMode == AiMode.gemini,
-          ),
-          const SizedBox(height: 8),
-          _ModeInfoRow(
-            icon: Icons.cloud_rounded,
-            label: 'Backend API',
-            description:
-                'Connects to the ASP.NET backend API. '
-                'All grading is done server-side. Requires a running backend and a valid assessment ID. '
-                'Login first via the Backend Connection Test below.',
-            active: widget.aiMode == AiMode.backend,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── OpenRouter ─────────────────────────────────────────────────────────────
-
-  Widget _buildOrKeySection() {
-    return _SettingsCard(
-      title: 'OPENROUTER API KEY',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: _orKeyController,
-            obscureText: _orObscure,
-            style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
-            decoration: InputDecoration(
-              hintText: 'sk-or-v1-...',
-              hintStyle: const TextStyle(color: AppColors.muted),
-              filled: true,
-              fillColor: AppColors.surfaceHigh,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.primary),
-              ),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _orObscure ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                  color: AppColors.muted,
-                ),
-                onPressed: () => setState(() => _orObscure = !_orObscure),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Stored in memory only for this session. Never written to disk.',
-            style: TextStyle(color: AppColors.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primaryContainer,
-                  foregroundColor: AppColors.text,
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            child: const Row(
+              children: [
+                Icon(Icons.cloud_rounded, color: AppColors.primary, size: 22),
+                SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Backend AI Engine — Active',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'All grading is performed server-side. '
+                        'No API key is required from the teacher. '
+                        'The backend manages the AI model and provider credentials.',
+                        style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
+                      ),
+                    ],
                   ),
                 ),
-                onPressed: _saveOrKey,
-                icon: const Icon(Icons.save_rounded),
-                label: const Text(
-                  'Save Key',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.error,
-                  side: BorderSide(color: AppColors.error.withAlpha(160)),
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: _clearOrKey,
-                icon: const Icon(Icons.delete_outline_rounded),
-                label: const Text(
-                  'Clear Key',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOrModelSection() {
-    return _SettingsCard(
-      title: 'OPENROUTER MODEL',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: _orModelController,
-            style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
-            decoration: InputDecoration(
-              hintText: 'openrouter/free',
-              hintStyle: const TextStyle(color: AppColors.muted),
-              filled: true,
-              fillColor: AppColors.surfaceHigh,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.primary),
-              ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Any model available on OpenRouter. Browse openrouter.ai/models for IDs.',
-            style: TextStyle(color: AppColors.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _ModelChip(
-                label: 'OpenRouter Free (default)',
-                modelId: 'openrouter/free',
-                onTap: () => _orModelController.text = 'openrouter/free',
-              ),
-              _ModelChip(
-                label: 'Llama 3.1 8B (free)',
-                modelId: 'meta-llama/llama-3.1-8b-instruct:free',
-                onTap: () => _orModelController.text =
-                    'meta-llama/llama-3.1-8b-instruct:free',
-              ),
-              _ModelChip(
-                label: 'GPT-4o Mini (paid)',
-                modelId: 'openai/gpt-4o-mini',
-                onTap: () => _orModelController.text = 'openai/gpt-4o-mini',
-              ),
-            ],
           ),
           const SizedBox(height: 16),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primaryContainer,
-              foregroundColor: AppColors.text,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            onPressed: _saveOrModel,
-            icon: const Icon(Icons.save_rounded),
-            label: const Text(
-              'Save Model',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Gemini ─────────────────────────────────────────────────────────────────
-
-  Widget _buildGeminiSection() {
-    return _SettingsCard(
-      title: 'GEMINI (GOOGLE AI)',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Key field
-          const Text(
-            'API KEY',
-            style: TextStyle(
-              color: AppColors.muted,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.8,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _geminiKeyController,
-            obscureText: _geminiObscure,
-            style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
-            decoration: InputDecoration(
-              hintText: 'AIza...',
-              hintStyle: const TextStyle(color: AppColors.muted),
-              filled: true,
-              fillColor: AppColors.surfaceHigh,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.primary),
-              ),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _geminiObscure
-                      ? Icons.visibility_off_rounded
-                      : Icons.visibility_rounded,
-                  color: AppColors.muted,
-                ),
-                onPressed: () =>
-                    setState(() => _geminiObscure = !_geminiObscure),
-              ),
-            ),
-          ),
+          _InfoRow(icon: Icons.upload_rounded,           text: 'Grade single:   POST /api/submissions/{id}/grade'),
           const SizedBox(height: 6),
-          const Text(
-            'Get a free key at aistudio.google.com. Stored in memory only.',
-            style: TextStyle(color: AppColors.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primaryContainer,
-                  foregroundColor: AppColors.text,
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: _saveGeminiKey,
-                icon: const Icon(Icons.save_rounded),
-                label: const Text(
-                  'Save Key',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.error,
-                  side: BorderSide(color: AppColors.error.withAlpha(160)),
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: _clearGeminiKey,
-                icon: const Icon(Icons.delete_outline_rounded),
-                label: const Text(
-                  'Clear Key',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          // Model field
-          const Text(
-            'MODEL',
-            style: TextStyle(
-              color: AppColors.muted,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.8,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _geminiModelController,
-            style: const TextStyle(color: AppColors.text, fontFamily: 'monospace'),
-            decoration: InputDecoration(
-              hintText: 'gemini-2.0-flash-lite',
-              hintStyle: const TextStyle(color: AppColors.muted),
-              filled: true,
-              fillColor: AppColors.surfaceHigh,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.primary),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _ModelChip(
-                label: 'Flash Lite (free, fast)',
-                modelId: 'gemini-2.0-flash-lite',
-                onTap: () =>
-                    _geminiModelController.text = 'gemini-2.0-flash-lite',
-              ),
-              _ModelChip(
-                label: 'Flash 2.0 (free)',
-                modelId: 'gemini-2.0-flash',
-                onTap: () =>
-                    _geminiModelController.text = 'gemini-2.0-flash',
-              ),
-              _ModelChip(
-                label: 'Flash 1.5 (free)',
-                modelId: 'gemini-1.5-flash',
-                onTap: () =>
-                    _geminiModelController.text = 'gemini-1.5-flash',
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primaryContainer,
-              foregroundColor: AppColors.text,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            onPressed: _saveGeminiModel,
-            icon: const Icon(Icons.save_rounded),
-            label: const Text(
-              'Save Model',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
-          ),
+          _InfoRow(icon: Icons.batch_prediction_rounded, text: 'Grade all:      POST /api/assessments/{id}/grading-jobs'),
+          const SizedBox(height: 6),
+          _InfoRow(icon: Icons.download_rounded,         text: 'Export Excel:   GET  /api/assessments/{id}/export/excel'),
         ],
       ),
     );
@@ -628,209 +208,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // ── Backend connection test ────────────────────────────────────────────────
 
-  Future<void> _testLogin() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-    if (email.isEmpty || password.isEmpty) {
-      setState(() {
-        _backendStatus = 'Enter email and password first.';
-        _backendIsError = true;
-      });
-      return;
-    }
-    setState(() {
-      _backendLoading = true;
-      _backendStatus = null;
-      _backendIsError = false;
-      _loggedInUser = null;
-    });
-    try {
-      final profile = await AuthService.login(
-        LoginRequest(email: email, password: password),
-      );
-      setState(() {
-        _backendLoading = false;
-        _loggedInUser = profile;
-        _backendStatus = 'Logged in as ${profile.displayName}';
-        _backendIsError = false;
-      });
-    } on ApiException catch (e) {
-      setState(() {
-        _backendLoading = false;
-        _backendStatus = e.message;
-        _backendIsError = true;
-      });
-    } catch (e) {
-      setState(() {
-        _backendLoading = false;
-        _backendStatus = e.toString();
-        _backendIsError = true;
-      });
-    }
-  }
-
-  Future<void> _testGetProfile() async {
-    setState(() {
-      _backendLoading = true;
-      _backendStatus = null;
-      _backendIsError = false;
-    });
-    try {
-      final profile = await AuthService.me();
-      setState(() {
-        _backendLoading = false;
-        _loggedInUser = profile;
-        _backendStatus = 'Profile: ${profile.email}'
-            '${profile.fullName != null ? ' — ${profile.fullName}' : ''}'
-            '${profile.role != null ? ' [${profile.role}]' : ''}';
-        _backendIsError = false;
-      });
-    } on ApiException catch (e) {
-      setState(() {
-        _backendLoading = false;
-        _backendStatus = e.message;
-        _backendIsError = true;
-      });
-    } catch (e) {
-      setState(() {
-        _backendLoading = false;
-        _backendStatus = e.toString();
-        _backendIsError = true;
-      });
-    }
-  }
-
-  Future<void> _testLogout() async {
-    await AuthService.logout();
-    setState(() {
-      _loggedInUser = null;
-      _backendStatus = 'Logged out. Token cleared.';
-      _backendIsError = false;
-    });
-  }
-
   Widget _buildBackendSection() {
+    final inputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: AppColors.outlineVariant),
+    );
+    final focusedBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: AppColors.primary),
+    );
+    final inputDecoration = InputDecoration(
+      filled: true,
+      fillColor: AppColors.surfaceHigh,
+      border: inputBorder,
+      enabledBorder: inputBorder,
+      focusedBorder: focusedBorder,
+      hintStyle: const TextStyle(color: AppColors.muted),
+    );
+
     return _SettingsCard(
       title: 'BACKEND CONNECTION TEST',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Test the connection to the ASP.NET backend. '
+            'Verify the connection to the ASP.NET backend. '
             'Backend must be running at the configured base URL.',
             style: TextStyle(color: AppColors.muted, fontSize: 13),
           ),
           const SizedBox(height: 16),
           TextField(
-            controller: _emailController,
-            style: const TextStyle(color: AppColors.text),
+            controller: _emailCtrl,
             keyboardType: TextInputType.emailAddress,
-            decoration: InputDecoration(
-              hintText: 'Email',
-              hintStyle: const TextStyle(color: AppColors.muted),
-              filled: true,
-              fillColor: AppColors.surfaceHigh,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.primary),
-              ),
-            ),
+            style: const TextStyle(color: AppColors.text),
+            decoration: inputDecoration.copyWith(hintText: 'Email'),
           ),
           const SizedBox(height: 10),
           TextField(
-            controller: _passwordController,
+            controller: _passwordCtrl,
             obscureText: !_passwordVisible,
             style: const TextStyle(color: AppColors.text),
-            decoration: InputDecoration(
+            decoration: inputDecoration.copyWith(
               hintText: 'Password',
-              hintStyle: const TextStyle(color: AppColors.muted),
-              filled: true,
-              fillColor: AppColors.surfaceHigh,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.outlineVariant),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.primary),
-              ),
               suffixIcon: IconButton(
                 icon: Icon(
-                  _passwordVisible
-                      ? Icons.visibility_rounded
-                      : Icons.visibility_off_rounded,
+                  _passwordVisible ? Icons.visibility_rounded : Icons.visibility_off_rounded,
                   color: AppColors.muted,
                 ),
-                onPressed: () =>
-                    setState(() => _passwordVisible = !_passwordVisible),
+                onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
               ),
             ),
           ),
           const SizedBox(height: 16),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 10, runSpacing: 10,
             children: [
               FilledButton.icon(
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.primaryContainer,
                   foregroundColor: AppColors.text,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: _backendLoading ? null : _testLogin,
                 icon: _backendLoading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.login_rounded),
-                label: const Text('Test Login',
-                    style: TextStyle(fontWeight: FontWeight.w800)),
+                label: const Text('Test Login', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.text,
                   side: const BorderSide(color: AppColors.outlineVariant),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: _backendLoading ? null : _testGetProfile,
                 icon: const Icon(Icons.person_rounded),
-                label: const Text('GET /auth/me',
-                    style: TextStyle(fontWeight: FontWeight.w800)),
+                label: const Text('GET /auth/me', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
               if (_loggedInUser != null)
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.error,
                     side: BorderSide(color: AppColors.error.withAlpha(160)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: _testLogout,
                   icon: const Icon(Icons.logout_rounded),
-                  label: const Text('Logout',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
+                  label: const Text('Logout', style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
             ],
           ),
@@ -854,9 +321,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    _backendIsError
-                        ? Icons.error_outline_rounded
-                        : Icons.check_circle_outline_rounded,
+                    _backendIsError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
                     size: 16,
                     color: _backendIsError ? AppColors.error : AppColors.primary,
                   ),
@@ -865,9 +330,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Text(
                       _backendStatus!,
                       style: TextStyle(
-                        color: _backendIsError
-                            ? AppColors.error
-                            : AppColors.primary,
+                        color: _backendIsError ? AppColors.error : AppColors.primary,
                         fontSize: 13,
                       ),
                     ),
@@ -888,14 +351,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.assignment_rounded,
-                      size: 15, color: AppColors.primary),
+                  const Icon(Icons.assignment_rounded, size: 15, color: AppColors.primary),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Active assessment: ${widget.backendAssessmentId}',
-                      style: const TextStyle(
-                          color: AppColors.primary, fontSize: 12),
+                      style: const TextStyle(color: AppColors.primary, fontSize: 12),
                     ),
                   ),
                 ],
@@ -917,20 +378,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _InfoRow(
             icon: Icons.lock_rounded,
-            text: 'All API keys are held in memory only — never written to disk or committed to version control.',
+            text: 'JWT session token is stored in the platform secure store (Windows Credential Manager).',
           ),
           const SizedBox(height: 8),
           _InfoRow(
             icon: Icons.shield_rounded,
-            text:
-                'Student submissions are sent to OpenRouter (openrouter.ai) when OpenRouter mode is active, '
-                'or to Google Gemini API (generativelanguage.googleapis.com) when Gemini mode is active.',
+            text: 'Student submissions are sent only to the configured backend server. '
+                'No student data is sent to third-party AI providers directly from this client.',
           ),
           const SizedBox(height: 8),
           _InfoRow(
-            icon: Icons.auto_awesome_rounded,
-            text:
-                'Gemini free tier: up to 15 requests/minute, 1500 requests/day with gemini-2.0-flash-lite.',
+            icon: Icons.info_outline_rounded,
+            text: 'The backend owns all AI provider credentials. '
+                'Teachers do not need to configure any API keys in this application.',
           ),
         ],
       ),
@@ -938,56 +398,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-// ── Shared widgets ─────────────────────────────────────────────────────────────
-
-class _ModelChip extends StatelessWidget {
-  const _ModelChip({
-    required this.label,
-    required this.modelId,
-    required this.onTap,
-  });
-
-  final String label;
-  final String modelId;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceHighest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.outlineVariant),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                color: AppColors.text,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Text(
-              modelId,
-              style: const TextStyle(
-                color: AppColors.muted,
-                fontSize: 10,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared card widget
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _SettingsCard extends StatelessWidget {
   const _SettingsCard({required this.title, required this.child});
@@ -1025,56 +438,11 @@ class _SettingsCard extends StatelessWidget {
   }
 }
 
-class _ModeInfoRow extends StatelessWidget {
-  const _ModeInfoRow({
-    required this.icon,
-    required this.label,
-    required this.description,
-    required this.active,
-  });
-
-  final IconData icon;
-  final String label;
-  final String description;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 16, color: active ? AppColors.primary : AppColors.muted),
-        const SizedBox(width: 10),
-        Expanded(
-          child: RichText(
-            text: TextSpan(
-              style: const TextStyle(fontSize: 13),
-              children: [
-                TextSpan(
-                  text: '$label: ',
-                  style: TextStyle(
-                    color: active ? AppColors.primary : AppColors.muted,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                TextSpan(
-                  text: description,
-                  style: const TextStyle(color: AppColors.muted),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.icon, required this.text});
 
   final IconData icon;
-  final String text;
+  final String   text;
 
   @override
   Widget build(BuildContext context) {
@@ -1084,10 +452,7 @@ class _InfoRow extends StatelessWidget {
         Icon(icon, size: 15, color: AppColors.muted),
         const SizedBox(width: 10),
         Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
+          child: Text(text, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
         ),
       ],
     );

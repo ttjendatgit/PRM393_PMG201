@@ -1,56 +1,19 @@
 import 'package:flutter/material.dart';
+
+import '../features/auth/models/user_profile.dart';
 import '../theme/app_colors.dart';
 
 class _NavItem {
   final IconData icon;
-  final String label;
+  final String   label;
   const _NavItem(this.icon, this.label);
 }
 
-class BrandBlock extends StatelessWidget {
-  const BrandBlock({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          height: 44,
-          width: 44,
-          decoration: BoxDecoration(
-            color: AppColors.primaryContainer,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.school_rounded, color: AppColors.text),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'PMG GradeAI',
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              Text(
-                'ACADEMIC CONSOLE',
-                style: TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.1,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+String _initials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+'));
+  if (parts.isEmpty || parts.first.isEmpty) return '?';
+  if (parts.length == 1) return parts[0][0].toUpperCase();
+  return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
 }
 
 class SideNav extends StatelessWidget {
@@ -58,25 +21,28 @@ class SideNav extends StatelessWidget {
     super.key,
     required this.selectedIndex,
     required this.onSelect,
+    required this.user,
+    required this.onLogout,
   });
 
-  final int selectedIndex;
+  final int          selectedIndex;
   final ValueChanged<int> onSelect;
+  final UserProfile  user;
+  final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
     final items = [
-      _NavItem(Icons.home_rounded, 'Home'),
-      _NavItem(Icons.quiz_rounded, 'Assessment'),
-      _NavItem(Icons.rule_rounded, 'Criteria'),
-      _NavItem(Icons.grading_rounded, 'Grading'),
-      _NavItem(Icons.ios_share_rounded, 'Export'),
-      _NavItem(Icons.settings_rounded, 'Settings'),
+      _NavItem(Icons.home_rounded,        'Home'),
+      _NavItem(Icons.assignment_rounded,  'Assessment'),
+      _NavItem(Icons.rule_rounded,        'Rubric'),
+      _NavItem(Icons.grading_rounded,     'Grading'),
+      _NavItem(Icons.ios_share_rounded,   'Export'),
+      _NavItem(Icons.settings_rounded,    'Settings'),
     ];
 
     return Container(
-      width: 264,
-      padding: const EdgeInsets.all(24),
+      width: 260,
       decoration: const BoxDecoration(
         color: AppColors.surfaceLow,
         border: Border(right: BorderSide(color: AppColors.outlineVariant)),
@@ -84,92 +50,211 @@ class SideNav extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const BrandBlock(),
-          const SizedBox(height: 28),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primaryContainer,
-                foregroundColor: AppColors.text,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: () {},
-              icon: const Icon(Icons.add_rounded),
-              label: const Text(
-                'New Grading Task',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-          const SizedBox(height: 28),
-          for (int i = 0; i < items.length; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => onSelect(i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
+          // ── Brand header ─────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+            child: Row(
+              children: [
+                Container(
+                  width: 40, height: 40,
                   decoration: BoxDecoration(
-                    color: selectedIndex == i
-                        ? AppColors.primaryContainer
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Row(
+                  child: const Icon(Icons.school_rounded, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        items[i].icon,
-                        color: selectedIndex == i
-                            ? AppColors.text
-                            : AppColors.muted,
-                      ),
-                      const SizedBox(width: 12),
                       Text(
-                        items[i].label,
+                        'PMG GradeAI',
                         style: TextStyle(
-                          color: selectedIndex == i
-                              ? AppColors.text
-                              : AppColors.muted,
-                          fontWeight: selectedIndex == i
-                              ? FontWeight.w800
-                              : FontWeight.w500,
+                          color: AppColors.primary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        'Academic Grading Assistant',
+                        style: TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
+              ],
             ),
-          const Spacer(),
-          const Divider(color: AppColors.outlineVariant),
-          const SizedBox(height: 12),
-          const Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.surfaceHighest,
-                child: Icon(Icons.person_rounded, color: AppColors.muted),
-              ),
-              SizedBox(width: 12),
-              Text(
-                'PMG201c Console',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontWeight: FontWeight.w600,
+          ),
+
+          // ── New Assessment button ─────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SizedBox(
+              width: double.infinity,
+              height: 42,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+                onPressed: () => onSelect(1),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text(
+                  'New Assessment',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                 ),
               ),
-            ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // ── Nav label ─────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              'NAVIGATION',
+              style: TextStyle(
+                color: AppColors.muted.withAlpha(160),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // ── Nav items ─────────────────────────────────────────────────────
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(
+                children: [
+                  for (int i = 0; i < items.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: _NavTile(
+                        icon:     items[i].icon,
+                        label:    items[i].label,
+                        selected: selectedIndex == i,
+                        onTap:    () => onSelect(i),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── User footer ───────────────────────────────────────────────────
+          const Divider(color: AppColors.outlineVariant, height: 1),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.primaryContainer,
+                  child: Text(
+                    _initials(user.displayName),
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        user.displayName,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        user.role ?? 'Teacher',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.logout_rounded, size: 18, color: AppColors.muted),
+                  onPressed: onLogout,
+                  tooltip: 'Sign out',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NavTile extends StatelessWidget {
+  const _NavTile({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String   label;
+  final bool     selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primaryContainer : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: selected ? AppColors.primary : AppColors.muted,
+            ),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: TextStyle(
+                color:      selected ? AppColors.primary : AppColors.muted,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                fontSize:   14,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

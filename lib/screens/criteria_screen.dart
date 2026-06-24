@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+
 import '../models/assessment.dart';
 import '../models/rubric.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_frame.dart';
 import '../widgets/page_title.dart';
 import '../widgets/status_pill.dart';
-import '../widgets/tiny_tag.dart';
 
 class CriteriaPage extends StatelessWidget {
   const CriteriaPage({super.key, required this.assessment});
@@ -26,11 +26,13 @@ class CriteriaPage extends StatelessWidget {
                 : 'Criteria Matrix',
             subtitle: a != null
                 ? 'Rubric for ${a.assessmentTitle}. '
-                    '${a.totalRawScore.toInt()} raw marks → /${a.totalConvertedScore % 1 == 0 ? a.totalConvertedScore.toInt() : a.totalConvertedScore} converted. '
+                    '${a.totalRawScore.toInt()} raw marks → '
+                    '/${a.totalConvertedScore % 1 == 0 ? a.totalConvertedScore.toInt() : a.totalConvertedScore} converted. '
                     '${a.questions.isEmpty ? 'Text-only (no structured rubric).' : '${a.questions.length} question(s).'}'
                 : 'No assessment loaded. Go to Assessment Setup to load or create one.',
             badge: a != null
-                ? 'Total ${a.totalRawScore.toInt()} raw → /${a.totalConvertedScore % 1 == 0 ? a.totalConvertedScore.toInt() : a.totalConvertedScore}'
+                ? 'Total ${a.totalRawScore.toInt()} raw → '
+                    '/${a.totalConvertedScore % 1 == 0 ? a.totalConvertedScore.toInt() : a.totalConvertedScore}'
                 : 'No Assessment',
             button: 'Assessment Setup',
           ),
@@ -46,19 +48,11 @@ class CriteriaPage extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.rule_folder_rounded,
-            size: 64,
-            color: AppColors.muted.withAlpha(120),
-          ),
+          Icon(Icons.rule_folder_rounded, size: 64, color: AppColors.muted.withAlpha(120)),
           const SizedBox(height: 20),
           const Text(
             'No assessment rubric loaded.',
-            style: TextStyle(
-              color: AppColors.text,
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -77,19 +71,11 @@ class CriteriaPage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.list_alt_rounded,
-              size: 64,
-              color: AppColors.muted.withAlpha(120),
-            ),
+            Icon(Icons.list_alt_rounded, size: 64, color: AppColors.muted.withAlpha(120)),
             const SizedBox(height: 20),
             const Text(
               'Assessment loaded (text only).',
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             const Text(
@@ -105,29 +91,51 @@ class CriteriaPage extends StatelessWidget {
       );
     }
 
-    return GridView.builder(
-      itemCount: a.questions.length,
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 390,
-        mainAxisExtent: 320,
-        crossAxisSpacing: 20,
-        mainAxisSpacing: 20,
-      ),
-      itemBuilder: (context, index) {
-        final q = a.questions[index];
-        final weightFraction = q.rawMaxScore / a.totalRawScore;
-        final weightPct = (weightFraction * 100).round();
+    // Use LayoutBuilder so column count adapts to the actual available width.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final cols = w > 1100 ? 3 : w > 650 ? 2 : 1;
 
-        return _RubricCard(
-          question: q,
-          weightFraction: weightFraction,
-          weightPct: weightPct,
-          courseCode: a.courseCode,
+        return GridView.builder(
+          itemCount: a.questions.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            // 420 gives comfortable room for 2-line titles, 3-line descriptions,
+            // badge rows, and the tag strip at the bottom.
+            mainAxisExtent: 420,
+            crossAxisSpacing: 20,
+            mainAxisSpacing: 20,
+          ),
+          itemBuilder: (context, index) {
+            final q = a.questions[index];
+            final weightFraction =
+                a.totalRawScore > 0 ? q.rawMaxScore / a.totalRawScore : 0.0;
+            final weightPct = (weightFraction * 100).round();
+
+            return _RubricCard(
+              question: q,
+              weightFraction: weightFraction,
+              weightPct: weightPct,
+              courseCode: a.courseCode,
+            );
+          },
         );
       },
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rubric Card
+//
+// Root-cause fixes applied:
+// • Removed clipBehavior: Clip.antiAlias — clipping was hiding overflow
+//   stripes instead of preventing them.
+// • Raised mainAxisExtent to 420 so content no longer overflows.
+// • Bottom tag Row → Wrap so long IDs don't force horizontal overflow.
+// • questionId shortened to ≤12 chars to prevent TinyTag blowout.
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _RubricCard extends StatelessWidget {
   const _RubricCard({
@@ -142,36 +150,59 @@ class _RubricCard extends StatelessWidget {
   final int weightPct;
   final String courseCode;
 
+  // Shorten technical IDs / GUIDs to ≤12 visible chars so they fit in TinyTag.
+  String _shortId(String id) {
+    if (id.length <= 12) return id;
+    return '${id.substring(0, 8)}…';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      clipBehavior: Clip.antiAlias,
+      // clipBehavior removed — overflow is fixed at source, not masked.
       decoration: BoxDecoration(
-        color: AppColors.surfaceContainer,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.outlineVariant),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.outline),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4F46E5).withAlpha(8),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          LinearProgressIndicator(
-            minHeight: 4,
-            value: weightFraction,
-            backgroundColor: AppColors.surfaceHighest,
-            color: AppColors.primary,
+          // Weight indicator bar
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            child: LinearProgressIndicator(
+              minHeight: 5,
+              value: weightFraction,
+              backgroundColor: AppColors.surfaceHighest,
+              color: AppColors.primary,
+            ),
           ),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(22),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ── Title row ──────────────────────────────────────────────
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        _iconForQuestion(question.questionId),
-                        color: AppColors.primary,
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Icon(
+                          _iconForQuestion(question.questionId),
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           question.title,
@@ -179,18 +210,18 @@ class _RubricCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: AppColors.text,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            height: 1.3,
                           ),
                         ),
                       ),
-                      StatusPill(
-                        text: '$weightPct%',
-                        color: AppColors.primary,
-                      ),
+                      const SizedBox(width: 8),
+                      StatusPill(text: '$weightPct%', color: AppColors.primary),
                     ],
                   ),
                   const SizedBox(height: 10),
+                  // ── Score badges ───────────────────────────────────────────
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
@@ -201,7 +232,8 @@ class _RubricCard extends StatelessWidget {
                       ),
                       _ScoreBadge(
                         label: 'Conv',
-                        value: '/${question.convertedMaxScore % 1 == 0 ? question.convertedMaxScore.toInt() : question.convertedMaxScore.toStringAsFixed(2)}',
+                        value:
+                            '/${question.convertedMaxScore % 1 == 0 ? question.convertedMaxScore.toInt() : question.convertedMaxScore.toStringAsFixed(2)}',
                       ),
                       if (question.subCriteria.isNotEmpty)
                         _ScoreBadge(
@@ -211,10 +243,11 @@ class _RubricCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  // ── Description ────────────────────────────────────────────
                   Flexible(
                     child: Text(
                       question.description,
-                      maxLines: 3,
+                      maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: AppColors.muted,
@@ -224,11 +257,13 @@ class _RubricCard extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
-                  Row(
+                  // ── Tag strip — use Wrap to prevent UUID overflow ──────────
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
                     children: [
-                      TinyTag(text: question.questionId.toUpperCase()),
-                      const SizedBox(width: 8),
-                      TinyTag(text: courseCode),
+                      _TinyTag(text: _shortId(question.questionId.toUpperCase())),
+                      _TinyTag(text: courseCode),
                     ],
                   ),
                 ],
@@ -241,20 +276,52 @@ class _RubricCard extends StatelessWidget {
   }
 
   IconData _iconForQuestion(String qId) {
-    switch (qId) {
-      case 'q1':
-        return Icons.assignment_rounded;
-      case 'q2':
-        return Icons.payments_rounded;
-      case 'q3':
-        return Icons.warning_amber_rounded;
-      case 'q4':
-        return Icons.group_rounded;
-      default:
-        return Icons.quiz_rounded;
+    switch (qId.toLowerCase()) {
+      case 'q1':  return Icons.assignment_rounded;
+      case 'q2':  return Icons.payments_rounded;
+      case 'q3':  return Icons.warning_amber_rounded;
+      case 'q4':  return Icons.group_rounded;
+      default:    return Icons.quiz_rounded;
     }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local _TinyTag — enforces maxWidth + ellipsis so long IDs never overflow.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TinyTag extends StatelessWidget {
+  const _TinyTag({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 160),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceHighest,
+        border: Border.all(color: AppColors.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: AppColors.muted,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Score badge
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _ScoreBadge extends StatelessWidget {
   const _ScoreBadge({required this.label, required this.value});
@@ -275,16 +342,10 @@ class _ScoreBadge extends StatelessWidget {
         text: TextSpan(
           style: const TextStyle(fontSize: 11),
           children: [
-            TextSpan(
-              text: '$label  ',
-              style: const TextStyle(color: AppColors.muted),
-            ),
+            TextSpan(text: '$label  ', style: const TextStyle(color: AppColors.muted)),
             TextSpan(
               text: value,
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w700,
-              ),
+              style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700),
             ),
           ],
         ),

@@ -7,7 +7,6 @@ import '../models/assessment.dart';
 import '../models/rubric.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_frame.dart';
-import '../widgets/page_title.dart';
 
 class AssessmentSetupScreen extends StatefulWidget {
   const AssessmentSetupScreen({
@@ -1443,39 +1442,59 @@ class PageHeaderWithAction extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Row: [title (Expanded)] [badge] [button]
+        // PageTitle was previously used here without Expanded, causing the
+        // subtitle's natural text width to overflow the Row by ~168 px.
+        // Now only the title is shown in the Row; subtitle is rendered below.
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            PageTitle(title: title, subtitle: subtitle),
-            const SizedBox(width: 16),
-            if (badge != null)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
                 ),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withAlpha(25),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  badge!,
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
+              ),
+            ),
+            if (badge != null) ...[
+              const SizedBox(width: 12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withAlpha(25),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    badge!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ),
-            const Spacer(),
-            if (button != null && onPressed != null)
+            ],
+            if (button != null && onPressed != null) ...[
+              const SizedBox(width: 12),
               FilledButton.tonalIcon(
                 onPressed: onPressed,
                 icon: const Icon(Icons.auto_awesome_rounded, size: 16),
                 label: Text(button!),
               ),
+            ],
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Text(
           subtitle,
           style: const TextStyle(color: AppColors.muted, height: 1.4),

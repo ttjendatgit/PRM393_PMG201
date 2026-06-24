@@ -1,3 +1,5 @@
+/// Per-item grading result, mapped from `items[]` in the detail endpoint
+/// GET /api/submissions/{submissionId}/grading-result.
 class SubScoreResult {
   final String criterionCode;
   final String criterionTitle;
@@ -15,14 +17,25 @@ class SubScoreResult {
 }
 
 class QuestionResult {
-  final String id;
-  final String questionId;
-  final String questionTitle;
+  final String id;               // items[].id
+  final String questionId;       // items[].rubricItemId / questionNo
+  final String questionTitle;    // items[].title
+
+  // AI-awarded scores (awardedRawScore / awardedConvertedScore)
   final double rawScore;
   final double convertedScore;
-  final double maxRawScore;
-  final double maxConvertedScore;
-  final String comment;
+
+  final double maxRawScore;      // items[].maxRawScore
+  final double maxConvertedScore;// items[].maxConvertedScore
+
+  final String comment;          // items[].aiComment
+  final String evidence;         // items[].evidence
+
+  // Teacher review overrides (null when not yet reviewed)
+  final double? reviewedRawScore;       // items[].reviewedRawScore
+  final double? reviewedConvertedScore; // items[].reviewedConvertedScore
+  final String teacherComment;          // items[].teacherComment
+
   final List<SubScoreResult> subscores;
 
   QuestionResult({
@@ -34,6 +47,10 @@ class QuestionResult {
     required this.maxRawScore,
     required this.maxConvertedScore,
     required this.comment,
+    this.evidence = '',
+    this.reviewedRawScore,
+    this.reviewedConvertedScore,
+    this.teacherComment = '',
     this.subscores = const [],
   });
 }

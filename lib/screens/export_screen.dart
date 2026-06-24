@@ -58,14 +58,47 @@ class _ExportPageState extends State<ExportPage> {
     }
   }
 
+  // Status priority for deduplication: higher = preferred when two rows share
+  // the same submissionId.
+  static const _statusPriority = {'FINALIZED': 3, 'REVIEWED': 2, 'AI_GRADED': 1};
+
+  /// Deduplicates [list] by submissionId, keeping the highest-status entry.
+  List<ReviewResultSummary> _deduplicate(List<ReviewResultSummary> list) {
+    final Map<String, ReviewResultSummary> byKey = {};
+    for (final r in list) {
+      // Debug log every entry from the backend so duplicates are visible in console.
+      debugPrint('[ExportResults] gradingResultId=${r.gradingResultId} '
+          'submissionId=${r.submissionId} fileName=${r.originalFileName} '
+          'status=${r.reviewStatus} '
+          'score=${r.finalConvertedScore ?? r.reviewedConvertedScore ?? r.aiTotalConvertedScore}');
+
+      // Use submissionId as dedup key; fall back to gradingResultId.
+      final key =
+          r.submissionId.isNotEmpty ? r.submissionId : r.gradingResultId;
+      final existing = byKey[key];
+      if (existing == null) {
+        byKey[key] = r;
+      } else {
+        final existingPriority = _statusPriority[existing.reviewStatus] ?? 0;
+        final newPriority       = _statusPriority[r.reviewStatus]       ?? 0;
+        if (newPriority > existingPriority) {
+          byKey[key] = r;
+        }
+      }
+    }
+    final deduped = byKey.values.toList();
+    debugPrint('[ExportResults] raw=${list.length} → deduped=${deduped.length}');
+    return deduped;
+  }
+
   Future<void> _loadBackendResults() async {
     setState(() {
       _loadingBackend = true;
-      _loadError = null;
+      _loadError      = null;
     });
     try {
-      final list =
-          await ReviewApiService.getReviewResults(widget.backendAssessmentId!);
+      final raw  = await ReviewApiService.getReviewResults(widget.backendAssessmentId!);
+      final list = _deduplicate(raw);
       if (mounted) {
         setState(() {
           _backendResults = list;
