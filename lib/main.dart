@@ -353,6 +353,49 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  // ── Delete current submission ──────────────────────────────────────────────
+
+  Future<void> _deleteCurrentSubmission() async {
+    final submission = selectedSubmission;
+    if (submission == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Submission'),
+        content: Text('Are you sure you want to delete "${submission.fileName}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await SubmissionApiService.deleteSubmission(submission.id);
+      setState(() {
+        submissions.removeWhere((s) => s.id == submission.id);
+        results.removeWhere((r) => r.submissionId == submission.id);
+        _statuses.remove(submission.id);
+        if (selectedSubmissionIndex != null && selectedSubmissionIndex! >= submissions.length) {
+          selectedSubmissionIndex = submissions.isEmpty ? null : submissions.length - 1;
+        }
+      });
+      message = 'Deleted: ${submission.fileName}';
+    } catch (e) {
+      message = 'Failed to delete: $e';
+    }
+  }
+
   Future<void> _fetchGradingResultForSubmission(
     int index, {
     bool forceRefresh = false,
@@ -791,16 +834,26 @@ class _AppShellState extends State<AppShell> {
         debugPrint('[GradeSingle] GET attempt ${attempt + 1}: '
             '/api/submissions/${submission.id}/grading-result');
         try { raw = await GradingApiService.getGradingResult(submission.id); }
-        catch (_) {}
+        catch (e) {
+          debugPrint('[GradeSingle] GET error: $e');
+        }
       }
 
-      if (!mounted) return;
+      if (!mounted) {
+        debugPrint('[GradeSingle] Widget unmounted, skipping state update');
+        return;
+      }
+
+      debugPrint('[GradeSingle] raw=${raw != null ? "found" : "null"}');
+
       if (raw != null) {
         final r = raw;
         debugPrint('[GradeSingle] resultId=${r.id} subId=${r.submissionId} '
             'reviewStatus=${r.reviewStatus} status=${r.status} '
             'score=${r.finalScore} items=${r.questionResults?.length ?? 0} '
             '${r.errorMessage.isNotEmpty ? "errorMsg=${r.errorMessage}" : ""}');
+
+        // Force rebuild by updating state
         setState(() {
           _upsertResult(submission.id, r);
           _statuses      = {..._statuses, submission.id: _getResultStatus(r)};
@@ -809,6 +862,20 @@ class _AppShellState extends State<AppShell> {
               ? 'AI grading failed: ${r.errorMessage.isNotEmpty ? r.errorMessage : "unknown error"}. Use Manual Grading Mode.'
               : 'Graded: ${r.studentName.isNotEmpty ? r.studentName : submission.fileName}';
         });
+
+        debugPrint('[GradeSingle] State updated, results.length=${results.length}');
+
+        // Also update the submission's grading status in the list
+        setState(() {
+          final idx = submissions.indexWhere((s) => s.id == submission.id);
+          if (idx >= 0) {
+            final updatedSub = submissions[idx].copyWith(
+              gradingStatus: r.status == 'ERROR' ? 'ERROR' : 'GRADED',
+            );
+            submissions[idx] = updatedSub;
+            debugPrint('[GradeSingle] Updated submission $idx gradingStatus=${updatedSub.gradingStatus}');
+          }
+        });
       } else {
         setState(() {
           message = 'Grading started but result not yet available. '
@@ -816,9 +883,13 @@ class _AppShellState extends State<AppShell> {
         });
       }
     } catch (e) {
+      debugPrint('[GradeSingle] Error: $e');
       if (mounted) setState(() { message = 'Backend grading error: $e'; });
     } finally {
-      if (mounted && isGrading) setState(() => isGrading = false);
+      if (mounted && isGrading) {
+        setState(() => isGrading = false);
+        debugPrint('[GradeSingle] isGrading set to false');
+      }
     }
   }
 
@@ -1263,6 +1334,7 @@ class _AppShellState extends State<AppShell> {
         onGradeCurrent: gradeCurrent,
         onSaveReview:  _aiMode == AiMode.backend ? _saveBackendReview : _saveReview,
         onFinalize:    _aiMode == AiMode.backend ? (id) => _finalizeBackendResult(id) : null,
+        onDeleteSubmission: () => _deleteCurrentSubmission(),
         onNextSubmission: (selectedSubmissionIndex ?? -1) < submissions.length - 1
             ? _selectNextSubmission
             : null,

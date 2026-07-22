@@ -70,6 +70,7 @@ class GradingPage extends StatelessWidget {
     this.gradingError,
     this.onFinalize,
     this.onNextSubmission,
+    this.onDeleteSubmission,
     this.isContentLoading = false,
   });
 
@@ -80,6 +81,7 @@ class GradingPage extends StatelessWidget {
   final ValueChanged<GradingResult> onSaveReview;
   final ValueChanged<String>? onFinalize;
   final VoidCallback? onNextSubmission;
+  final VoidCallback? onDeleteSubmission;
   final bool isContentLoading;
   final AiMode aiMode;
   final Assessment? assessment;
@@ -127,6 +129,7 @@ class GradingPage extends StatelessWidget {
           onSaveReview:  onSaveReview,
           onFinalize:    onFinalize,
           onNextSubmission: onNextSubmission,
+          onDeleteSubmission: onDeleteSubmission,
           aiMode:        aiMode,
           assessment:    assessment,
           isGrading:     isGrading,
@@ -157,6 +160,7 @@ class AiPanel extends StatefulWidget {
     this.gradingError,
     this.onFinalize,
     this.onNextSubmission,
+    this.onDeleteSubmission,
   });
 
   final GradingResult? result;
@@ -165,6 +169,7 @@ class AiPanel extends StatefulWidget {
   final ValueChanged<GradingResult> onSaveReview;
   final ValueChanged<String>? onFinalize;
   final VoidCallback? onNextSubmission;
+  final VoidCallback? onDeleteSubmission;
   final AiMode aiMode;
   final Assessment? assessment;
   final bool isGrading;
@@ -668,6 +673,21 @@ class _AiPanelState extends State<AiPanel> {
             icon: const Icon(Icons.list_rounded, size: 18),
             label: const Text('Grade All Files'),
           ),
+          const SizedBox(height: 8),
+          // Delete submission
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.error,
+              side: BorderSide(color: AppColors.error.withValues(alpha: 0.3)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: widget.isGrading ? null : widget.onDeleteSubmission,
+            icon: const Icon(Icons.delete_outline_rounded, size: 18),
+            label: const Text('Delete This File'),
+          ),
           // Offer Manual Mode when assessment has a rubric loaded.
           if (widget.assessment?.questions.isNotEmpty == true) ...[
             const SizedBox(height: 16),
@@ -835,24 +855,39 @@ class _AiPanelState extends State<AiPanel> {
         const SizedBox(height: 8),
         FeedbackBox(feedback: widget.result!.feedback),
         const SizedBox(height: 18),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primaryContainer,
-              foregroundColor: AppColors.text,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryContainer,
+                  foregroundColor: AppColors.text,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: _saveReview,
+                icon: const Icon(Icons.save_rounded),
+                label: const Text(
+                  'Save Reviewed Scores',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
               ),
             ),
-            onPressed: _saveReview,
-            icon: const Icon(Icons.save_rounded),
-            label: const Text(
-              'Save Reviewed Scores',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
-          ),
+            if (widget.onDeleteSubmission != null) ...[
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: widget.onDeleteSubmission,
+                icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
+                tooltip: 'Delete this submission',
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.error.withAlpha(20),
+                  padding: const EdgeInsets.all(12),
+                ),
+              ),
+            ],
+          ],
         ),
         if (widget.onFinalize != null) ...[
           const SizedBox(height: 10),
