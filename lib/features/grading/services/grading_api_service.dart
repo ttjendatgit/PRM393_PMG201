@@ -1,3 +1,6 @@
+import 'package:dio/dio.dart' show Options;
+
+import '../../../core/config/api_config.dart';
 import '../../../core/network/api_client.dart';
 import '../../../models/grading_result.dart';
 
@@ -40,9 +43,26 @@ class GradingApiService {
   }
 
   /// POST /api/submissions/{submissionId}/grade
-  /// Returns the grading result.
+  /// Returns the grading result. This is synchronous on the Backend and the
+  /// AI call can take up to ~180s, so it needs its own extended timeout
+  /// instead of the app-wide default (120s).
+  ///
+  /// connectTimeout is explicitly disabled (Duration.zero) for this call:
+  /// on Flutter Web, Dio's browser adapter starts a separate connect-phase
+  /// timer that aborts the request early if no response headers have been
+  /// received by `connectTimeout` — regardless of receiveTimeout. Since this
+  /// Backend endpoint sends no headers until the whole AI call finishes,
+  /// leaving the app-wide 15s connectTimeout in place here would keep
+  /// aborting the request at 15s. Duration.zero disables that timer for
+  /// this call only; the 210s cap is enforced by receiveTimeout instead.
   static Future<GradingResult> gradeSubmission(String submissionId) async {
-    final data = await ApiClient.post('/api/submissions/$submissionId/grade');
+    final data = await ApiClient.post(
+      '/api/submissions/$submissionId/grade',
+      options: Options(
+        connectTimeout: Duration.zero,
+        receiveTimeout: ApiConfig.gradingReceiveTimeout,
+      ),
+    );
     return GradingResult.fromJson(data as Map<String, dynamic>);
   }
 

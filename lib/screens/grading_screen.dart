@@ -419,6 +419,16 @@ class _AiPanelState extends State<AiPanel> {
     _initEditStates();
   }
 
+  // ── Error-state detection ─────────────────────────────────────────────────
+  //
+  // A GradingResult can exist (widget.result != null) yet represent a failed
+  // AI grading attempt persisted by the backend (status == "ERROR"). Such a
+  // record must never be treated as a real graded result — no raw/converted
+  // score, no "Item breakdown unavailable" — instead it must render the same
+  // failure UI as the pre-grading error state.
+  bool get _isErrorResult =>
+      widget.result != null && widget.result!.status == 'ERROR';
+
   void _saveManualReview(BuildContext ctx) {
     final resultId      = widget.result?.id ?? '';
     final submissionId  = widget.result?.submissionId.isNotEmpty == true
@@ -506,7 +516,7 @@ class _AiPanelState extends State<AiPanel> {
           Expanded(
             child: _isManualMode
                 ? _buildManualModePanel()
-                : (widget.result == null
+                : ((widget.result == null || _isErrorResult)
                     ? _buildPendingState()
                     : _buildResultState()),
           ),
@@ -516,9 +526,13 @@ class _AiPanelState extends State<AiPanel> {
   }
 
   Widget _buildPanelHeader() {
-    // Resolve displayed status: prefer explicit status; fall back to result presence
-    final s = widget.status ??
-        (widget.result == null ? GradingStatus.pending : GradingStatus.graded);
+    // Resolve displayed status: a persisted ERROR result always wins (even if
+    // the caller's status map is stale/derived from reviewStatus only), then
+    // fall back to the explicit status, then to result presence.
+    final s = _isErrorResult
+        ? GradingStatus.error
+        : widget.status ??
+            (widget.result == null ? GradingStatus.pending : GradingStatus.graded);
 
     return Container(
       height: 58,
@@ -554,7 +568,14 @@ class _AiPanelState extends State<AiPanel> {
   }
 
   Widget _buildPendingState() {
-    final isError = widget.status == GradingStatus.error;
+    final isError = widget.status == GradingStatus.error || _isErrorResult;
+    // Prefer the live exception message (set right after a failed grade
+    // attempt); fall back to the persisted result's errorMessage (e.g. when
+    // reopening a submission that already has a saved ERROR result).
+    final errorText = widget.gradingError ??
+        (widget.result != null && widget.result!.errorMessage.isNotEmpty
+            ? widget.result!.errorMessage
+            : null);
 
     // Mode is always AiMode.backend in this app; label/icon fall back to
     // backend for any legacy non-backend value that may have slipped through.
@@ -595,10 +616,10 @@ class _AiPanelState extends State<AiPanel> {
                       fontSize: 13,
                     ),
                   ),
-                  if (widget.gradingError != null) ...[
+                  if (errorText != null) ...[
                     const SizedBox(height: 6),
                     Text(
-                      widget.gradingError!,
+                      errorText,
                       style: TextStyle(
                         color: AppColors.error.withValues(alpha: 0.85),
                         fontSize: 12,

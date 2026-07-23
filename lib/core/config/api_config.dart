@@ -20,4 +20,9 @@ class ApiConfig {
   static const Duration connectTimeout = Duration(seconds: 15);
   static const Duration receiveTimeout = Duration(seconds: 120);
   static const Duration sendTimeout = Duration(seconds: 120);
+
+  /// Extended receive timeout for POST /api/submissions/{id}/grade.
+  /// The Backend AI grading call is synchronous and can take up to ~180s;
+  /// this must stay comfortably above that.
+  static const Duration gradingReceiveTimeout = Duration(seconds: 210);
 }

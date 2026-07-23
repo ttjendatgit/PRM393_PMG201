@@ -25,6 +25,7 @@ class GradingResult {
   final String  reviewStatus;    // AI_GRADED | REVIEWED | FINALIZED
   final String  status;          // GRADED | ERROR | ... (submission status)
   final String  errorMessage;
+  final String? aiModel;         // aiModel — AI model used to grade (nullable)
   final double? reviewedRawScore;
   final double? reviewedConvertedScore;
   final double? finalRawScore;
@@ -48,6 +49,7 @@ class GradingResult {
     this.reviewStatus          = 'AI_GRADED',
     this.status                = '',
     this.errorMessage          = '',
+    this.aiModel,
     this.reviewedRawScore,
     this.reviewedConvertedScore,
     this.finalRawScore,
@@ -98,6 +100,7 @@ class GradingResult {
       reviewStatus: json['reviewStatus']?.toString()  ?? 'AI_GRADED',
       status:       json['status']?.toString()        ?? '',
       errorMessage: json['errorMessage']?.toString()  ?? '',
+      aiModel:      json['aiModel']?.toString(),
 
       reviewedRawScore:       (json['reviewedRawScore']       as num?)?.toDouble(),
       reviewedConvertedScore: (json['reviewedConvertedScore'] as num?)?.toDouble(),
@@ -155,6 +158,9 @@ class GradingResult {
       final reviewedConv = (i['reviewedConvertedScore'] as num?)?.toDouble();
       final teacherComment = i['teacherComment']?.toString() ?? '';
 
+      // Use the Backend's own flag — do not infer from reviewedRawScore.
+      final isScoreOverridden = i['isScoreOverridden'] as bool? ?? false;
+
       // Title
       final title = i['title']?.toString()         ??
                     i['questionTitle']?.toString()  ?? '';
@@ -172,6 +178,7 @@ class GradingResult {
         reviewedRawScore:      reviewedRaw,
         reviewedConvertedScore: reviewedConv,
         teacherComment:        teacherComment,
+        isScoreOverridden:     isScoreOverridden,
       );
     }).toList();
   }
@@ -212,6 +219,7 @@ class GradingResult {
     String?             reviewStatus,
     String?             status,
     String?             errorMessage,
+    String?             aiModel,
     double?             reviewedRawScore,
     double?             reviewedConvertedScore,
     double?             finalRawScore,
@@ -235,6 +243,7 @@ class GradingResult {
       reviewStatus:          reviewStatus          ?? this.reviewStatus,
       status:                status                ?? this.status,
       errorMessage:          errorMessage          ?? this.errorMessage,
+      aiModel:               aiModel               ?? this.aiModel,
       reviewedRawScore:      reviewedRawScore      ?? this.reviewedRawScore,
       reviewedConvertedScore: reviewedConvertedScore ?? this.reviewedConvertedScore,
       finalRawScore:         finalRawScore         ?? this.finalRawScore,

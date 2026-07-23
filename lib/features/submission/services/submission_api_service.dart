@@ -1,3 +1,5 @@
+import 'package:file_picker/file_picker.dart';
+
 import '../../../core/network/api_client.dart';
 import '../../../models/submission.dart';
 
@@ -6,14 +8,16 @@ class SubmissionApiService {
 
   /// POST /api/assessments/{assessmentId}/submissions/upload
   /// Upload one or more student submission files for an assessment.
+  /// Accepts [PlatformFile] (not raw paths) so it works on both desktop
+  /// (file path) and Web (in-memory bytes, no filesystem access).
   /// Returns { uploaded, failed, submissions: [...], errors: [...] }
   static Future<UploadSubmissionsResult> uploadSubmissions(
     String assessmentId,
-    List<String> filePaths,
+    List<PlatformFile> files,
   ) async {
-    final data = await ApiClient.uploadFiles(
+    final data = await ApiClient.uploadPlatformFiles(
       '/api/assessments/$assessmentId/submissions/upload',
-      filePaths,
+      files,
       fieldName: 'files',
     );
     final json = data as Map<String, dynamic>;

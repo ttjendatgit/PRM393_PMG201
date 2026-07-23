@@ -1,5 +1,7 @@
 import 'package:file_picker/file_picker.dart' as fp;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import '../core/network/api_exception.dart';
 import '../data/pmg201c_pe2_sample_assessment.dart';
 import '../features/assessment/services/assessment_api_service.dart';
 import '../features/rubric/services/rubric_api_service.dart';
@@ -169,6 +171,21 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
     }
   }
 
+  /// True when [file] cannot actually be read on the current platform —
+  /// Web needs bytes (no filesystem access); desktop needs a path.
+  bool _fileUnreadable(fp.PlatformFile file) => kIsWeb
+      ? (file.bytes == null || file.bytes!.isEmpty)
+      : (file.path == null || file.path!.isEmpty);
+
+  /// Maps an upload failure to a short, readable message instead of showing
+  /// a raw exception (e.g. the old unconditional dart:io MultipartFile
+  /// error on Web).
+  String _friendlyUploadError(Object e) {
+    if (e is StateError) return e.message;
+    if (e is ApiException) return e.message;
+    return e.toString();
+  }
+
   Future<void> _uploadQuestionFile() async {
     final assessmentId = _selectedAssessment?.assessmentId;
     if (assessmentId == null) {
@@ -179,19 +196,27 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
     final picked = await fp.FilePicker.pickFiles(
       type: fp.FileType.custom,
       allowedExtensions: ['txt', 'md', 'docx', 'pdf', 'csv', 'xlsx'],
+      // Web has no filesystem access — PlatformFile.path is unusable there,
+      // so bytes must be loaded into memory instead.
+      withData: kIsWeb,
     );
     if (picked == null || picked.files.isEmpty) return;
-    final path = picked.files.first.path;
-    if (path == null) return;
+    final file = picked.files.first;
+    if (_fileUnreadable(file)) {
+      _showSnack('Unable to read "${file.name}".', isError: true);
+      return;
+    }
 
+    debugPrint('[AssessmentUpload] type=question file=${file.name} size=${file.size}');
     setState(() {
       _uploadingQuestion = true;
     });
 
     try {
+      debugPrint('[AssessmentUpload] endpoint=/api/assessments/$assessmentId/question-file');
       final response = await RubricApiService.uploadQuestionFile(
         assessmentId,
-        path,
+        file,
       );
       if (!mounted) return;
 
@@ -201,11 +226,14 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
         _uploadingQuestion = false;
         _extractedQuestionText = extractedText;
       });
+      debugPrint('[AssessmentUpload] status=200');
+      debugPrint('[AssessmentUpload] success type=question');
       _showSnack('Question file uploaded successfully.');
     } catch (e) {
       if (!mounted) return;
       setState(() => _uploadingQuestion = false);
-      _showSnack('Upload failed: $e', isError: true);
+      debugPrint('[AssessmentUpload] failed type=question error=${e.runtimeType}');
+      _showSnack('Upload failed for "${file.name}": ${_friendlyUploadError(e)}', isError: true);
     }
   }
 
@@ -219,19 +247,25 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
     final picked = await fp.FilePicker.pickFiles(
       type: fp.FileType.custom,
       allowedExtensions: ['txt', 'md', 'docx', 'pdf', 'csv', 'xlsx'],
+      withData: kIsWeb,
     );
     if (picked == null || picked.files.isEmpty) return;
-    final path = picked.files.first.path;
-    if (path == null) return;
+    final file = picked.files.first;
+    if (_fileUnreadable(file)) {
+      _showSnack('Unable to read "${file.name}".', isError: true);
+      return;
+    }
 
+    debugPrint('[AssessmentUpload] type=guide file=${file.name} size=${file.size}');
     setState(() {
       _uploadingGuide = true;
     });
 
     try {
+      debugPrint('[AssessmentUpload] endpoint=/api/assessments/$assessmentId/guide-file');
       final response = await RubricApiService.uploadGuideFile(
         assessmentId,
-        path,
+        file,
       );
       if (!mounted) return;
 
@@ -242,11 +276,14 @@ class _AssessmentSetupScreenState extends State<AssessmentSetupScreen> {
         _guideUploaded = true;
         _extractedGuideText = extractedText;
       });
+      debugPrint('[AssessmentUpload] status=200');
+      debugPrint('[AssessmentUpload] success type=guide');
       _showSnack('Guide file uploaded successfully.');
     } catch (e) {
       if (!mounted) return;
       setState(() => _uploadingGuide = false);
-      _showSnack('Upload failed: $e', isError: true);
+      debugPrint('[AssessmentUpload] failed type=guide error=${e.runtimeType}');
+      _showSnack('Upload failed for "${file.name}": ${_friendlyUploadError(e)}', isError: true);
     }
   }
 

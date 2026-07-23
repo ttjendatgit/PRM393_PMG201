@@ -1,3 +1,5 @@
+import 'package:file_picker/file_picker.dart';
+
 import '../../../core/network/api_client.dart';
 import '../../../models/rubric.dart';
 
@@ -16,29 +18,34 @@ class RubricApiService {
 
   /// Uploads the question file for an assessment.
   ///
+  /// Accepts a [PlatformFile] (not a raw path) so it works on both desktop
+  /// (file path) and Web (in-memory bytes, no filesystem access).
   /// Returns the [AssessmentFileResponse] as a raw Map.
   /// BE expects: multipart/form-data with field name "file".
   static Future<Map<String, dynamic>> uploadQuestionFile(
     String assessmentId,
-    String filePath,
+    PlatformFile file,
   ) async {
-    final data = await ApiClient.uploadFile(
+    final data = await ApiClient.uploadPlatformFile(
       '/api/assessments/$assessmentId/question-file',
-      filePath,
+      file,
+      fieldName: 'file',
     );
     return data as Map<String, dynamic>;
   }
 
   /// Uploads the grading guide file for an assessment.
   ///
+  /// Accepts a [PlatformFile] — see [uploadQuestionFile].
   /// Returns the [AssessmentFileResponse] as a raw Map.
   static Future<Map<String, dynamic>> uploadGuideFile(
     String assessmentId,
-    String filePath,
+    PlatformFile file,
   ) async {
-    final data = await ApiClient.uploadFile(
+    final data = await ApiClient.uploadPlatformFile(
       '/api/assessments/$assessmentId/guide-file',
-      filePath,
+      file,
+      fieldName: 'file',
     );
     return data as Map<String, dynamic>;
   }

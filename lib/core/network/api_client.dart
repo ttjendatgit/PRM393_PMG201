@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../config/api_config.dart';
 import '../storage/token_storage.dart';
@@ -92,10 +94,18 @@ class ApiClient {
       }
     } else {
       message = switch (e.type) {
+        // NOTE: on Flutter Web, a slow synchronous Backend endpoint that sends
+        // no response headers until it fully completes is reported by Dio's
+        // browser adapter as connectionTimeout, not receiveTimeout — the XHR
+        // adapter classifies purely by readyState, not by which timeout
+        // phase actually elapsed. So this message must stay neutral; it does
+        // NOT reliably mean the backend process is down.
         DioExceptionType.connectionTimeout =>
-          'Connection timed out. Make sure the backend is running at ${ApiConfig.baseUrl}',
-        DioExceptionType.sendTimeout => 'Request timed out while sending data.',
-        DioExceptionType.receiveTimeout => 'Server took too long to respond.',
+          'Could not connect to the backend at ${ApiConfig.baseUrl}.',
+        DioExceptionType.sendTimeout =>
+          'The request could not be sent in time.',
+        DioExceptionType.receiveTimeout =>
+          'The server took too long to respond.',
         DioExceptionType.connectionError =>
           'Cannot reach the server. Is the backend running at ${ApiConfig.baseUrl}?',
         DioExceptionType.badResponse =>
@@ -105,7 +115,12 @@ class ApiClient {
       };
     }
 
-    return ApiException(message, statusCode: statusCode, data: data);
+    return ApiException(
+      message,
+      statusCode: statusCode,
+      data: data,
+      dioErrorType: e.type,
+    );
   }
 
   // ── Core HTTP methods ─────────────────────────────────────────────────────
@@ -129,12 +144,14 @@ class ApiClient {
     String path, {
     dynamic body,
     Map<String, dynamic>? queryParams,
+    Options? options,
   }) async {
     try {
       final response = await _dio.post<dynamic>(
         path,
         data: body,
         queryParameters: queryParams,
+        options: options,
       );
       return response.data;
     } on DioException catch (e) {
@@ -176,19 +193,72 @@ class ApiClient {
 
   // ── File upload ───────────────────────────────────────────────────────────
 
-  /// Upload a single file as multipart/form-data.
-  static Future<dynamic> uploadFile(
+  /// Converts one [PlatformFile] into a Dio [MultipartFile], cross-platform
+  /// safe. On Web, `PlatformFile.path` is unusable (no filesystem access)
+  /// and `dart:io`-based `MultipartFile.fromFile` throws `UnsupportedError`
+  /// ("MultipartFile is only supported where dart:io is available"), so Web
+  /// always sends the in-memory `PlatformFile.bytes` via
+  /// `MultipartFile.fromBytes`. Desktop/mobile prefer `path` (unchanged
+  /// behaviour) and fall back to `bytes` if a path isn't available. Throws
+  /// [StateError] with the filename in the message if neither is usable,
+  /// instead of silently dropping the file.
+  static Future<MultipartFile> _platformFileToMultipart(PlatformFile file) async {
+    final bytes = file.bytes;
+    if (kIsWeb) {
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('Unable to read "${file.name}" in the browser.');
+      }
+      return MultipartFile.fromBytes(bytes, filename: file.name);
+    }
+    final path = file.path;
+    if (path != null && path.isNotEmpty) {
+      return MultipartFile.fromFile(path, filename: file.name);
+    }
+    if (bytes != null && bytes.isNotEmpty) {
+      return MultipartFile.fromBytes(bytes, filename: file.name);
+    }
+    throw StateError('Unable to read "${file.name}".');
+  }
+
+  /// Upload multiple files as multipart/form-data from [PlatformFile]s.
+  static Future<dynamic> uploadPlatformFiles(
     String path,
-    String filePath, {
-    String fieldName = 'file',
+    List<PlatformFile> files, {
+    String fieldName = 'files',
     Map<String, dynamic>? fields,
     Map<String, dynamic>? queryParams,
   }) async {
     try {
-      final multipartFile = await MultipartFile.fromFile(filePath);
+      final multipartFiles = await Future.wait(files.map(_platformFileToMultipart));
+      final formData = FormData.fromMap({
+        fieldName: multipartFiles,
+        if (fields != null) ...fields,
+      });
+      final response = await _dio.post<dynamic>(
+        path,
+        data: formData,
+        queryParameters: queryParams,
+      );
+      return response.data;
+    } on DioException catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  /// Upload a single [PlatformFile] as multipart/form-data. Cross-platform
+  /// safe like [uploadPlatformFiles] — see [_platformFileToMultipart].
+  static Future<dynamic> uploadPlatformFile(
+    String path,
+    PlatformFile file, {
+    required String fieldName,
+    Map<String, dynamic>? extraFields,
+    Map<String, dynamic>? queryParams,
+  }) async {
+    try {
+      final multipartFile = await _platformFileToMultipart(file);
       final formData = FormData.fromMap({
         fieldName: multipartFile,
-        if (fields != null) ...fields,
+        if (extraFields != null) ...extraFields,
       });
       final response = await _dio.post<dynamic>(
         path,

@@ -35,6 +35,7 @@ class QuestionResult {
   final double? reviewedRawScore;       // items[].reviewedRawScore
   final double? reviewedConvertedScore; // items[].reviewedConvertedScore
   final String teacherComment;          // items[].teacherComment
+  final bool isScoreOverridden;         // items[].isScoreOverridden (from Backend, not inferred)
 
   final List<SubScoreResult> subscores;
 
@@ -51,6 +52,7 @@ class QuestionResult {
     this.reviewedRawScore,
     this.reviewedConvertedScore,
     this.teacherComment = '',
+    this.isScoreOverridden = false,
     this.subscores = const [],
   });
 }

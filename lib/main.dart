@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:excel/excel.dart' as xls;
 import 'package:file_picker/file_picker.dart' as fp;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'core/config/api_config.dart';
 import 'core/network/api_exception.dart';
 import 'core/storage/settings_storage.dart';
 import 'features/rubric/services/rubric_api_service.dart';
@@ -731,39 +733,44 @@ class _AppShellState extends State<AppShell> {
       allowMultiple: true,
       type: fp.FileType.custom,
       allowedExtensions: ['txt', 'md', 'docx'],
+      // Web has no filesystem access — PlatformFile.path is unusable there,
+      // so bytes must be loaded into memory instead. Desktop keeps using
+      // path (withData: false) to avoid the extra memory copy.
+      withData: kIsWeb,
     );
     if (result == null) {
       setState(() => message = 'File selection cancelled.');
       return;
     }
-    final filePaths = result.files
-        .map((f) => f.path)
-        .where((path) => path != null)
-        .cast<String>()
+    // Keep PlatformFile itself (not a derived path string) so filename is
+    // never lost. Usable on Web when bytes were loaded; usable on
+    // desktop/mobile when a filesystem path is present.
+    final files = result.files
+        .where((f) => kIsWeb ? f.bytes != null : f.path != null)
         .toList();
-    if (filePaths.isEmpty) {
+    if (files.isEmpty) {
       setState(() => message = 'No valid files selected.');
       return;
     }
     debugPrint('[Upload] assessmentId=$_backendAssessmentId, '
-        'files=${filePaths.length}: ${filePaths.map((p) => p.split(RegExp(r'[/\\]')).last).join(', ')}');
-    setState(() { isGrading = true; message = 'Uploading ${filePaths.length} file(s) to backend...'; });
+        'files=${files.length}: ${files.map((f) => f.name).join(', ')}');
+    setState(() { isGrading = true; message = 'Uploading ${files.length} file(s) to backend...'; });
     try {
       final uploadResult = await SubmissionApiService.uploadSubmissions(
-        _backendAssessmentId!, filePaths,
+        _backendAssessmentId!, files,
       );
-      final backendSubs = await SubmissionApiService.getSubmissions(_backendAssessmentId!);
+      // Reuse the existing refresh path instead of hand-rebuilding state here:
+      // it re-fetches the full submission list AND re-fetches each existing
+      // GradingResult, so previously graded/reviewed/finalized results are
+      // preserved instead of being wiped to an empty list. New submissions
+      // simply have no result yet, so they naturally read as Pending.
+      await _refreshBackendResults();
+      if (!mounted) return;
       setState(() {
-        submissions = backendSubs;
-        results     = [];
         _gradingErrors = {};
-        _statuses = {
-          for (final s in backendSubs) s.id: _mapBackendStatus(s.gradingStatus),
-        };
-        selectedSubmissionIndex = backendSubs.isNotEmpty ? 0 : null;
-        isGrading = false;
-        message   = 'Uploaded ${uploadResult.uploaded} file(s), ${uploadResult.failed} failed. '
-            '${backendSubs.length} submission(s) on server.';
+        selectedSubmissionIndex = submissions.isNotEmpty ? 0 : null;
+        message = 'Uploaded ${uploadResult.uploaded} file(s), ${uploadResult.failed} failed. '
+            '${submissions.length} submission(s) on server.';
       });
     } catch (e) {
       setState(() { isGrading = false; message = 'Upload error: $e'; });
@@ -822,70 +829,73 @@ class _AppShellState extends State<AppShell> {
       return;
     }
     debugPrint('[GradeSingle] POST /api/submissions/${submission.id}/grade  file="${submission.fileName}"');
+    debugPrint('[GradeSingle] timeout config receive=${ApiConfig.gradingReceiveTimeout.inSeconds}s');
     setState(() { isGrading = true; message = 'Grading ${submission.fileName} via backend...'; });
+    final stopwatch = Stopwatch()..start();
     try {
-      await GradingApiService.gradeSubmission(submission.id);
-
-      // Retry GET up to 4 times with 2 s delay — the backend may still be
-      // persisting the result when the POST returns.
-      GradingResult? raw;
-      for (int attempt = 0; attempt < 4 && raw == null; attempt++) {
-        if (attempt > 0) await Future.delayed(const Duration(seconds: 2));
-        debugPrint('[GradeSingle] GET attempt ${attempt + 1}: '
-            '/api/submissions/${submission.id}/grading-result');
-        try { raw = await GradingApiService.getGradingResult(submission.id); }
-        catch (e) {
-          debugPrint('[GradeSingle] GET error: $e');
-        }
-      }
+      // POST /api/submissions/{id}/grade is synchronous and returns the full
+      // GradingResultResponse — use it directly instead of discarding it and
+      // polling GET afterward.
+      final r = await GradingApiService.gradeSubmission(submission.id);
 
       if (!mounted) {
         debugPrint('[GradeSingle] Widget unmounted, skipping state update');
         return;
       }
 
-      debugPrint('[GradeSingle] raw=${raw != null ? "found" : "null"}');
+      debugPrint('[GradeSingle] resultId=${r.id} subId=${r.submissionId} '
+          'reviewStatus=${r.reviewStatus} status=${r.status} '
+          'score=${r.finalScore} items=${r.questionResults?.length ?? 0} '
+          '${r.errorMessage.isNotEmpty ? "errorMsg=${r.errorMessage}" : ""}');
 
-      if (raw != null) {
-        final r = raw;
-        debugPrint('[GradeSingle] resultId=${r.id} subId=${r.submissionId} '
-            'reviewStatus=${r.reviewStatus} status=${r.status} '
-            'score=${r.finalScore} items=${r.questionResults?.length ?? 0} '
-            '${r.errorMessage.isNotEmpty ? "errorMsg=${r.errorMessage}" : ""}');
+      setState(() {
+        _upsertResult(submission.id, r);
+        _statuses      = {..._statuses, submission.id: _getResultStatus(r)};
+        _gradingErrors = Map.from(_gradingErrors)..remove(submission.id);
+        message = r.status == 'ERROR'
+            ? 'AI grading failed: ${r.errorMessage.isNotEmpty ? r.errorMessage : "unknown error"}. Use Manual Grading Mode.'
+            : 'Graded: ${r.studentName.isNotEmpty ? r.studentName : submission.fileName}';
+      });
 
-        // Force rebuild by updating state
+      debugPrint('[GradeSingle] State updated, results.length=${results.length}');
+
+      // Also update the submission's grading status in the list
+      setState(() {
+        final idx = submissions.indexWhere((s) => s.id == submission.id);
+        if (idx >= 0) {
+          final updatedSub = submissions[idx].copyWith(
+            gradingStatus: r.status == 'ERROR' ? 'ERROR' : 'GRADED',
+          );
+          submissions[idx] = updatedSub;
+          debugPrint('[GradeSingle] Updated submission $idx gradingStatus=${updatedSub.gradingStatus}');
+        }
+      });
+    } catch (e) {
+      final isTimeout = e is ApiException && e.isTimeout;
+      debugPrint('[GradeSingle] DioException type='
+          '${e is ApiException ? e.dioErrorType : 'n/a'}');
+      debugPrint('[GradeSingle] elapsedSeconds=${stopwatch.elapsed.inSeconds}');
+      debugPrint('[GradeSingle] response status='
+          '${e is ApiException ? e.statusCode : 'n/a'}');
+      debugPrint('[GradeSingle] Error: $e');
+      if (mounted) {
         setState(() {
-          _upsertResult(submission.id, r);
-          _statuses      = {..._statuses, submission.id: _getResultStatus(r)};
-          _gradingErrors = Map.from(_gradingErrors)..remove(submission.id);
-          message = r.status == 'ERROR'
-              ? 'AI grading failed: ${r.errorMessage.isNotEmpty ? r.errorMessage : "unknown error"}. Use Manual Grading Mode.'
-              : 'Graded: ${r.studentName.isNotEmpty ? r.studentName : submission.fileName}';
-        });
-
-        debugPrint('[GradeSingle] State updated, results.length=${results.length}');
-
-        // Also update the submission's grading status in the list
-        setState(() {
-          final idx = submissions.indexWhere((s) => s.id == submission.id);
-          if (idx >= 0) {
-            final updatedSub = submissions[idx].copyWith(
-              gradingStatus: r.status == 'ERROR' ? 'ERROR' : 'GRADED',
-            );
-            submissions[idx] = updatedSub;
-            debugPrint('[GradeSingle] Updated submission $idx gradingStatus=${updatedSub.gradingStatus}');
-          }
-        });
-      } else {
-        setState(() {
-          message = 'Grading started but result not yet available. '
-              'Select this submission again to refresh.';
+          // A timeout here does NOT necessarily mean the Backend is down or
+          // failed — it may still be processing the AI call past our client
+          // timeout. Do not imply the request failed outright, and do not
+          // auto-retry (that could start a second concurrent grading run for
+          // the same submission).
+          message = isTimeout
+              ? 'AI grading is taking longer than '
+                  '${ApiConfig.gradingReceiveTimeout.inSeconds}s and this device stopped '
+                  'waiting, but the Backend may still be processing it. '
+                  'Avoid clicking Grade again — reopen this submission in a moment, '
+                  'or refresh, to check whether a result is ready.'
+              : 'Backend grading error: $e';
         });
       }
-    } catch (e) {
-      debugPrint('[GradeSingle] Error: $e');
-      if (mounted) setState(() { message = 'Backend grading error: $e'; });
     } finally {
+      stopwatch.stop();
       if (mounted && isGrading) {
         setState(() => isGrading = false);
         debugPrint('[GradeSingle] isGrading set to false');
@@ -1371,6 +1381,10 @@ class _AppShellState extends State<AppShell> {
         onSaveGeminiModelId:  _updateGeminiModelId,
         onChangeAiMode:       _updateAiMode,
         onSetBackendAssessmentId: _setBackendAssessmentId,
+        onLogout:             widget.onLogout,
+        userProfile:          widget.user,
+        backendOnline:        _backendOnline,
+        currentAssessment:    currentAssessment,
       ),
     ];
 
